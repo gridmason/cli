@@ -159,7 +159,7 @@ server parses declared capabilities with `parseCapability` and applies the
 scope-prefix grant rule (an `<api>[:<scope>]` grants a required capability iff the
 api matches and the declared scope path is a prefix of the required one).
 
-### The dev-proxy wire contract (provisional)
+### The dev-proxy wire contract
 
 The dev server forwards each allowed, gated SDK call to the target as:
 
@@ -177,7 +177,10 @@ The `POST /@dev/sdk` endpoint answers the browser proxy client with one of:
 - `{ "status": "denied", "capability": { … } }` — the required capability is not declared,
 - `{ "status": "error", "message": … }` — the target was unreachable or errored.
 
-This forward format is **provisional** — no shipped host implements it yet. The
-real host-side endpoint is a `gridmason/dashboard` deliverable; until it is
-pinned there, this is the shape `dev` speaks and a host must match to be a
-`--proxy` target.
+This forward format is pinned by **`@gridmason/protocol@0.0.4`**, which owns the
+contract — `DEV_PROXY_SDK_PATH` plus the `DevProxySdkRequest` / `DevProxySdkResponse`
+types (and their `isDevProxySdkRequest` / `isDevProxySdkResponse` guards). `dev`
+consumes those exports rather than re-declaring the shape, so its forward leg and
+a host's receive endpoint (a `gridmason/dashboard` deliverable) meet on one
+definition. No shipped host implements the receive side yet; this is the shape a
+host must match to be a `--proxy` target.
