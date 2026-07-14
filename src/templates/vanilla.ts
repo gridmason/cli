@@ -3,13 +3,13 @@
  * single hand-written ES module registers the custom element and speaks the
  * widget ABI (core §4) directly against the DOM — no framework, no build step.
  *
- * It consumes the real `@gridmason/sdk` **shared-core** helpers (`recordSource`,
- * `settingsSource`) — the framework-agnostic reactive seams a vanilla widget is
- * documented to bind to directly (the dedicated `@gridmason/sdk/vanilla`
- * ergonomic wrappers land with SDK issue #10). Before a host wires the
- * capability-scoped handle to `.sdk`, the element falls back to `createNoopSDK`
- * so the scaffold renders on first run (SPEC §3) — the same dev handle the
- * dashboard's static boot uses.
+ * It consumes the real `@gridmason/sdk/vanilla` reference adapter — the non-hook
+ * helpers a framework-free widget imports: `watchRecord` (subscribe to the primary
+ * context record's read state) and `bindSettings` (an imperative settings binding).
+ * Each bottoms out in a handle method, so the widget stays auditable by reading its
+ * SDK calls. Before a host wires the capability-scoped handle to `.sdk`, the element
+ * falls back to `createNoopSDK` so the scaffold renders on first run (SPEC §3) — the
+ * same dev handle the dashboard's static boot uses.
  */
 import { ACTION_EVENT, READY_EVENT, abiRuntimeSource, firstContextSlot, observedAttributesLiteral } from './abi.js';
 import type { GeneratedFile, TemplateContext } from './index.js';
@@ -25,8 +25,8 @@ export function vanillaFiles(ctx: TemplateContext): GeneratedFile[] {
 // element below and implements the widget ABI (core §4) directly — the four
 // host attributes in, CustomEvents out. Data flows through the capability-scoped
 // SDK handle the host assigns to \`.sdk\`; this reference binds the real
-// @gridmason/sdk shared-core reactive sources over that handle.
-import { recordSource, settingsSource } from '@gridmason/sdk';
+// @gridmason/sdk/vanilla helpers (watchRecord, bindSettings) over that handle.
+import { bindSettings, watchRecord } from '@gridmason/sdk/vanilla';
 import { createNoopSDK } from '@gridmason/sdk/noop';
 
 ${abiRuntimeSource()}
@@ -43,13 +43,14 @@ class ${className}Element extends HTMLElement {
   constructor() {
     super();
     this._sdk = null;
-    this._records = null;
     this._settings = null;
+    // Latest record-read snapshot; watchRecord pushes it (idle -> pending -> success/error).
+    this._record = { status: 'idle', data: undefined };
     this._unsubscribe = [];
   }
 
   // Host -> widget: the capability-scoped SDK handle. All privileged I/O goes
-  // through it; the shared-core helpers are ergonomics over this handle.
+  // through it; the @gridmason/sdk/vanilla helpers are ergonomics over this handle.
   set sdk(handle) {
     this._sdk = handle;
     this._bind();
@@ -91,22 +92,27 @@ class ${className}Element extends HTMLElement {
     this._unsubscribe = [];
   }
 
-  // (Re)bind the reactive sources to the current handle and render on change.
+  // (Re)bind the vanilla helpers to the current handle and render on change.
+  // watchRecord and bindSettings().watch each fire immediately with the current
+  // value and again on every change, returning an Unsubscribe we retain.
   _bind() {
     if (!this.isConnected) return;
     this._teardown();
     const sdk = this._ensureSdk();
-    this._records = recordSource(sdk, sdk.context[CONTEXT_SLOT]);
-    this._settings = settingsSource(sdk);
-    this._unsubscribe.push(this._records.subscribe(() => this._render()));
-    this._unsubscribe.push(this._settings.subscribe(() => this._render()));
-    this._render();
+    this._settings = bindSettings(sdk);
+    this._unsubscribe.push(
+      watchRecord(sdk, sdk.context[CONTEXT_SLOT], (snapshot) => {
+        this._record = snapshot;
+        this._render();
+      }),
+    );
+    this._unsubscribe.push(this._settings.watch(() => this._render()));
   }
 
   _render() {
     if (!this.isConnected) return;
-    const record = this._records ? this._records.getSnapshot() : { status: 'idle', data: undefined };
-    const settings = this._settings ? this._settings.getSnapshot() : {};
+    const record = this._record;
+    const settings = this._settings ? this._settings.get() : {};
     this.replaceChildren();
 
     const root = document.createElement('section');

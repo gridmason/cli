@@ -6,10 +6,11 @@
  * bundler when they want (the CLI is not a bundler, GW-D22). `vue` is declared in
  * the manifest `sharedScope`, so the host satisfies it from its import map.
  *
- * It consumes the real `@gridmason/sdk` **shared-core** reactive sources
- * (`recordSource`, `settingsSource`) — bridged into a Vue `reactive` snapshot the
- * component renders from (the dedicated `@gridmason/sdk/vue` composables land with
- * SDK issue #10). The element wires the host handle from `.sdk`, falling back to
+ * It consumes the real `@gridmason/sdk/vue` composables — `useRecord` (the primary
+ * context record) and `useSettings` — over the capability-scoped handle. The
+ * component receives the `sdk` handle as a prop and calls the composables in
+ * `setup()`; every composable bottoms out in an SDK method, so the widget stays
+ * auditable. The element wires the host handle from `.sdk`, falling back to
  * `createNoopSDK` so the scaffold renders on first run (SPEC §3).
  */
 import { READY_EVENT, abiRuntimeSource, firstContextSlot, observedAttributesLiteral } from './abi.js';
@@ -22,20 +23,26 @@ export function vueFiles(ctx: TemplateContext): GeneratedFile[] {
   const slot = firstContextSlot(manifest);
 
   const app = `import { defineComponent, h } from 'vue';
+import { useRecord, useSettings } from '@gridmason/sdk/vue';
 
 // The widget's Vue component. A plain-ESM render function (no SFC) so the entry
 // loads with no build step; add \`.vue\` files + your bundler when you want richer
-// authoring. It renders from the reactive \`state\` snapshot the element bridges
-// from the @gridmason/sdk shared-core sources.
+// authoring. Data access uses the @gridmason/sdk Vue composables over the host
+// handle — every composable bottoms out in an SDK method, so the widget stays
+// auditable. The composables return refs the render function unwraps with \`.value\`.
 export const App = defineComponent({
   props: {
-    state: { type: Object, required: true },
+    sdk: { type: Object, required: true },
   },
   setup(props) {
+    // The primary context record (manifest \`requiresContext.${slot}\`); the composable
+    // returns reactive refs and reads an idle result when the slot is absent.
+    const { status } = useRecord(props.sdk, props.sdk.context['${slot}']);
+    const [settings] = useSettings(props.sdk);
     return () =>
       h('section', { class: 'gm-widget' }, [
-        h('h1', props.state.title || '${manifest.name}'),
-        h('p', 'Primary record (${slot}): ' + props.state.recordStatus + '.'),
+        h('h1', settings.value.title ? String(settings.value.title) : '${manifest.name}'),
+        h('p', 'Primary record (${slot}): ' + status.value + '.'),
       ]);
   },
 });
@@ -46,14 +53,11 @@ export const App = defineComponent({
 // A plain ES module registering the custom element below. It hosts a Vue app and
 // implements the widget ABI (core §4): the four host attributes in, CustomEvents
 // out, the capability-scoped SDK handle read from \`.sdk\`.
-import { createApp, reactive } from 'vue';
-import { recordSource, settingsSource } from '@gridmason/sdk';
+import { createApp } from 'vue';
 import { createNoopSDK } from '@gridmason/sdk/noop';
 import { App } from './app.js';
 
 ${abiRuntimeSource()}
-
-const CONTEXT_SLOT = '${slot}';
 
 class ${className}Element extends HTMLElement {
   static get observedAttributes() {
@@ -65,15 +69,11 @@ class ${className}Element extends HTMLElement {
     this._sdk = null;
     this._app = null;
     this._mount = null;
-    this._state = null;
-    this._records = null;
-    this._settings = null;
-    this._unsubscribe = [];
   }
 
   set sdk(handle) {
     this._sdk = handle;
-    this._bind();
+    this._mountApp();
   }
 
   get sdk() {
@@ -83,19 +83,12 @@ class ${className}Element extends HTMLElement {
   connectedCallback() {
     this._mount = document.createElement('div');
     this.appendChild(this._mount);
-    this._state = reactive({ title: '', recordStatus: 'idle' });
-    this._app = createApp(App, { state: this._state });
-    this._app.mount(this._mount);
-    this._bind();
+    this._mountApp();
     emit(this, '${READY_EVENT}', { tag: '${tag}', instanceId: readHostState(this).instanceId });
   }
 
   disconnectedCallback() {
-    this._teardown();
-    if (this._app) {
-      this._app.unmount();
-      this._app = null;
-    }
+    this._unmountApp();
   }
 
   // Fall back to the dev no-op handle until the host wires a real one, so the
@@ -111,27 +104,21 @@ class ${className}Element extends HTMLElement {
     return this._sdk;
   }
 
-  _teardown() {
-    for (const off of this._unsubscribe) off();
-    this._unsubscribe = [];
+  _unmountApp() {
+    if (this._app) {
+      this._app.unmount();
+      this._app = null;
+    }
   }
 
-  // (Re)bind the shared-core sources to the current handle and mirror their
-  // snapshots into the reactive Vue state on every change.
-  _bind() {
-    if (!this._state) return;
-    this._teardown();
-    const sdk = this._ensureSdk();
-    this._records = recordSource(sdk, sdk.context[CONTEXT_SLOT]);
-    this._settings = settingsSource(sdk);
-    const sync = () => {
-      const settings = this._settings.getSnapshot();
-      this._state.title = settings.title ? String(settings.title) : '';
-      this._state.recordStatus = this._records.getSnapshot().status;
-    };
-    this._unsubscribe.push(this._records.subscribe(sync));
-    this._unsubscribe.push(this._settings.subscribe(sync));
-    sync();
+  // (Re)create the Vue app bound to the current handle. Recreating on rebind
+  // re-runs the composables' setup against the new handle (Vue setup runs once),
+  // the composables release their subscriptions on scope dispose at unmount.
+  _mountApp() {
+    if (!this._mount) return;
+    this._unmountApp();
+    this._app = createApp(App, { sdk: this._ensureSdk() });
+    this._app.mount(this._mount);
   }
 }
 
