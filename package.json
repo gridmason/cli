@@ -1,6 +1,6 @@
 {
   "name": "@gridmason/cli",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "The gridmason binary: the widget-author devkit (scaffold -> develop -> lint) and the publish path into a Gridmason Registry.",
   "license": "AGPL-3.0-only",
   "repository": {
@@ -28,6 +28,10 @@
     "./checks": {
       "types": "./dist/checks/index.d.ts",
       "import": "./dist/checks/index.js"
+    },
+    "./checks/fixtures": {
+      "types": "./dist/checks/fixtures/index.d.ts",
+      "import": "./dist/checks/fixtures/index.js"
     }
   },
   "files": [
@@ -53,7 +57,7 @@
   },
   "dependencies": {
     "@gridmason/protocol": "^0.1.0",
-    "@gridmason/sdk": "^0.2.0",
+    "@gridmason/sdk": "^0.4.0",
     "@sigstore/sign": "^5.0.0",
     "ajv": "8.17.1",
     "chokidar": "4.0.3",

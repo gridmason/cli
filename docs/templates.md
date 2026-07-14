@@ -30,12 +30,15 @@ over that handle:
 - **React** uses the reference adapter `@gridmason/sdk/react`: `useRecord` (reads
   the primary context record) and `useSettings`. Every hook bottoms out in a
   handle method, so a widget stays auditable by reading its SDK calls.
-- **vanilla** and **Vue** bind the framework-agnostic **shared-core** sources
-  from `@gridmason/sdk` — `recordSource` and `settingsSource` — directly (vanilla
-  subscribes and re-renders; Vue mirrors the snapshots into a `reactive` object).
-  The dedicated `@gridmason/sdk/{vanilla,vue}` ergonomic wrappers are still a
-  Phase-B SDK deliverable (SDK issue #10); the shared core is the API to bind to
-  until they land, and the migration is a drop-in import swap.
+- **Vue** uses the `@gridmason/sdk/vue` composables: `useRecord` and `useSettings`,
+  which return reactive refs the render function unwraps with `.value`. The
+  component receives the `sdk` handle as a prop and calls them in `setup()`.
+- **vanilla** uses the `@gridmason/sdk/vanilla` helpers: `watchRecord` (subscribe
+  to the primary record's read state) and `bindSettings` (an imperative settings
+  binding), each returning an `Unsubscribe` the element retains and calls on teardown.
+
+Each adapter mirrors the same surface in its framework's idiom, and every helper
+bottoms out in a handle method — so a widget stays auditable by reading its SDK calls.
 
 Before a host wires a real handle, the element falls back to `createNoopSDK`
 (`@gridmason/sdk/noop`) seeded from the attributes — the same dev handle the
@@ -68,17 +71,19 @@ DOM events emitted identically across frameworks.
 For React and Vue the `entry` imports its framework runtime by bare specifier
 (`react`, `react-dom/client`, `vue`); those are exactly the `sharedScope`
 entries, so the host provides them through its import map rather than the widget
-bundling its own copy. `@gridmason/sdk` (and its `/react`/`/noop` subpaths) is
-**not** in `sharedScope` — it is the platform SDK the host provides ambiently,
-the same convention the React runtime imports already follow. The vanilla entry
-imports no framework runtime, which is why it declares no `sharedScope`; it does
-import `@gridmason/sdk` for the shared-core sources.
+bundling its own copy. `@gridmason/sdk` (and its `/react`, `/vue`, `/vanilla`,
+`/noop` subpaths) is **not** in `sharedScope` — it is the platform SDK the host
+provides ambiently, the same convention the React runtime imports already follow.
+The vanilla entry imports no framework runtime, which is why it declares no
+`sharedScope`; it does import `@gridmason/sdk/vanilla` for its helpers.
 
 The React component receives the `sdk` handle and calls the reference hooks; the
 element re-renders through the retained React root on any attribute or handle
-change. The vanilla and Vue elements subscribe to the shared-core `recordSource`
-/`settingsSource` and re-render (vanilla) or mirror into a `reactive` object
-(Vue) on every source change — no remount per update.
+change. The Vue component likewise receives the `sdk` handle as a prop and calls
+the `@gridmason/sdk/vue` composables in `setup()`, re-rendering reactively as their
+refs advance (the element recreates the app on a handle rebind, since Vue `setup`
+runs once). The vanilla element subscribes with `watchRecord` and
+`bindSettings().watch` and re-renders on every change — no remount per update.
 
 ## Tag-registration contract & harness
 

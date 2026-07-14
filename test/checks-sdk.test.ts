@@ -2,7 +2,7 @@
  * SDK-adherence + DOM-abuse static-analysis tests (SPEC §5.2/§5.5, FR-7, #12).
  *
  * The acceptance is a seeded-violation suite with two halves:
- * - **planted violations catch** — every case in `test/fixtures/adherence.ts`
+ * - **planted violations catch** — every case in `src/checks/fixtures/index.ts`
  *   is flagged by *its own* check at the right severity, and by no other source
  *   check (no cross-talk);
  * - **clean templates pass** — a fresh `gridmason init` scaffold (every
@@ -29,7 +29,7 @@ import {
 } from '../src/checks/index.js';
 import { FRAMEWORKS, type Framework } from '../src/templates/index.js';
 import { planScaffold } from '../src/init/files.js';
-import { violationCases } from './fixtures/adherence.js';
+import { violationCases } from '../src/checks/fixtures/index.js';
 
 /** The static-analysis checks under test, keyed by id. */
 const sourceChecks: readonly Check[] = [...sdkChecks, ...domChecks];

@@ -1,6 +1,12 @@
 /**
  * Seeded-violation fixtures for the SDK-adherence + DOM-abuse checks (#12).
  *
+ * Published as `@gridmason/cli/checks/fixtures` (#43) so that a consumer of the
+ * shared checks — the registry's automated review stage, chiefly — asserts
+ * parity against *this* canonical suite rather than a vendored copy. The module
+ * is a plain data export: it pulls in no CLI machinery and no test framework, so
+ * it is safe as both a runtime and a dev consumable.
+ *
  * Each case is a **planted-violation sample widget**: a minimal source file whose
  * one interesting line trips exactly one heuristic. The suite drives them two ways
  * (see `test/checks-sdk.test.ts`): the named check must catch its own sample, and
@@ -13,7 +19,7 @@
  * module's own code. Each header comment names the planted violation; comments are
  * masked before scanning, so they never affect a result.
  */
-import type { SourceFile } from '../../src/checks/index.js';
+import type { SourceFile } from '../index.js';
 
 /** A planted-violation sample and what the checks must make of it. */
 export interface ViolationCase {
