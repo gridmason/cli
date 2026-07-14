@@ -7,12 +7,13 @@
  *
  * Harness: a headless DOM (`happy-dom`) plus native dynamic `import()`. Each
  * template's files are written to a scratch dir and the `entry` is imported as a
- * plain ES module — no bundler in the loop. `react`/`react-dom`/`vue` (the
- * `sharedScope` specifiers the React and Vue entries import) resolve from the
- * repo's `node_modules`, standing in for the shared modules a host would supply
- * through its import map. The vanilla entry is self-contained and needs no map.
- * Once loaded, we assert the tag is defined, the element mounts into the DOM,
- * and it emits the `gridmason:ready` ABI event.
+ * plain ES module — no bundler in the loop. The bare specifiers the entries
+ * import (`react`/`react-dom`/`vue` shared scope, plus `@gridmason/sdk` and its
+ * `/react`/`/noop` subpaths) resolve from the repo's `node_modules`, standing in
+ * for the modules a host supplies through its import map. Once loaded, we assert
+ * the tag is defined, the element mounts, emits the `gridmason:ready` ABI event,
+ * and that its real `@gridmason/sdk` record read (over the `createNoopSDK`
+ * fallback the scaffold uses before a host connects) resolves.
  */
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -109,7 +110,7 @@ describe.each(FRAMEWORKS)('template: %s', (framework) => {
 
     const el = document.createElement(tag);
     el.setAttribute('instance-id', 'inst-42');
-    el.setAttribute('context', JSON.stringify({ primary: { id: 'example:1' } }));
+    el.setAttribute('context', JSON.stringify({ primary: { recordType: 'example', id: 'example:1' } }));
 
     let ready: CustomEvent | undefined;
     el.addEventListener('gridmason:ready', (e) => {
@@ -125,6 +126,24 @@ describe.each(FRAMEWORKS)('template: %s', (framework) => {
     // The widget rendered its ABI skeleton (React flushes on a microtask).
     await waitFor(() => el.querySelector('h1') !== null);
     expect(el.querySelector('h1')?.textContent).toBe(`${framework} widget`);
+
+    el.remove();
+  });
+
+  it('drives a real @gridmason/sdk record read through the noop fallback', async () => {
+    const ctx = contextFor(framework);
+    const { tag } = ctx.manifest;
+    await loadEntry(ctx);
+
+    const el = document.createElement(tag);
+    // A populated primary-slot ref, so the widget's useRecord/recordSource reads it.
+    el.setAttribute('context', JSON.stringify({ primary: { recordType: 'example', id: 'example:1' } }));
+    document.body.appendChild(el);
+
+    // The read resolves through createNoopSDK's records.read (pending → success),
+    // proving the entry actually exercises the real SDK helper path, not a stub.
+    await waitFor(() => (el.querySelector('p')?.textContent ?? '').includes('success'));
+    expect(el.querySelector('p')?.textContent).toContain('success');
 
     el.remove();
   });

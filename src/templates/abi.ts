@@ -33,6 +33,15 @@ export function observedAttributesLiteral(): string {
 }
 
 /**
+ * The first `requiresContext` slot name — the context slot a scaffolded widget
+ * reads its primary record from (`sdk.context[slot]` is that slot's RecordRef).
+ * The `init` manifest always seeds one (`primary`); falls back to it defensively.
+ */
+export function firstContextSlot(manifest: { requiresContext?: Record<string, unknown> }): string {
+  return Object.keys(manifest.requiresContext ?? {})[0] ?? 'primary';
+}
+
+/**
  * The framework-agnostic ABI runtime, embedded verbatim into every generated
  * `entry`. Pure ES — no imports, no template literals — so it drops into any
  * template body and loads in a bare import-map harness with no build step.
