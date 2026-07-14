@@ -52,8 +52,9 @@
     "release": "changeset publish"
   },
   "dependencies": {
-    "@gridmason/protocol": "^0.0.4",
+    "@gridmason/protocol": "^0.1.0",
     "@gridmason/sdk": "^0.2.0",
+    "@sigstore/sign": "^5.0.0",
     "ajv": "8.17.1",
     "chokidar": "4.0.3",
     "commander": "15.0.0"

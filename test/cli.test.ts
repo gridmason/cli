@@ -52,7 +52,9 @@ describe('--version', () => {
 
 describe('unimplemented commands', () => {
   it('print a not-yet-implemented notice on stderr', async () => {
-    const { code, out, err } = await drive(['whoami']);
+    // `publish` stands in for a still-stubbed command; `login`/`whoami` are now
+    // implemented (their behavior is covered by login-whoami.test.ts).
+    const { code, out, err } = await drive(['publish']);
     expect(code).toBe(0);
     expect(err).toContain('not yet implemented');
     expect(out).toBe('');
