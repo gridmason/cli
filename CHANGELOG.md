@@ -1,5 +1,62 @@
 # @gridmason/cli
 
+## 0.0.2
+
+### Patch Changes
+
+- 83af639: Add a scaffold→lint end-to-end gate and complete the check-id reference (FR-7,
+  SPEC §5/§9).
+
+  - **E2e (`npm run test:e2e`, `vitest.e2e.config.ts`):** drives the _built_ binary
+    as a subprocess — `gridmason widget init` each starter template (vanilla /
+    React / Vue, non-interactive flags) then `gridmason lint` the scaffold — and
+    asserts a clean pass: exit 0, no failing check, and a `--json` report that
+    validates against `schemas/lint-report.schema.json`. The binary is built once
+    in the suite's `globalSetup`, so a regression in any check (or a template that
+    drifts into tripping one) fails the gate. Wired into CI as a dedicated `e2e`
+    job. This is the scaffold→lint leg of the SPEC §9 e2e; dev-serve/publish legs
+    are Phase B.
+  - **`docs/checks.md` is now the complete author-facing check-id reference:** every
+    id carries its rationale, registry review tier, severity, and the exact fix
+    hint the tool prints, alongside the honest known-bypass notes for the heuristic
+    `sdk.*` / `dom.*` checks. Linked from the README and a new `docs/` index.
+
+- eee6217: Add the local dependency-DAG check and the structured `gridmason lint --json`
+  report with check-id → review-tier mapping (FR-7, #13). `deps.acyclic` proves the
+  manifest's `requires` graph is acyclic offline — locally that catches a widget
+  requiring its own tag, printing the cycle path; transitive, cross-manifest cycles
+  stay the registry-validated `lint --registry` job (Phase B). `--json` now emits a
+  report that serializes every check result and maps each to the registry review
+  tier it feeds (registry §4.1–§4.2), with a `tiers` catalog resolving the SLAs, so
+  a CI consumer learns which review SLA an artifact will hit. The tier mapping is
+  data-driven by check-id `<group>` (`src/checks/tiers.ts`) — a new check family is a
+  one-line addition. The report shape is owned here and pinned by the shipped JSON
+  Schema `schemas/lint-report.schema.json`, which every emitted report validates
+  against. See `docs/checks.md`.
+- 0ef23f6: Add the shared checks module (`@gridmason/cli/checks`) and implement manifest
+  lint for `gridmason lint` (FR-7, FR-8). The module is a plain library the
+  registry service imports verbatim — one implementation, no divergence (SPEC §8).
+  It ships three manifest checks — `manifest.schema` (authoritative
+  `@gridmason/protocol` JSON Schema), `manifest.tag` (publisher-prefix + tag rules
+  via `lintTag`), and `manifest.capabilities` (scope grammar via
+  `validateCapability`) — driven by the protocol's shipped conformance vectors.
+  `gridmason lint [path]` runs them with human and `--json` output and a
+  fail-closed exit code. See `docs/checks.md` for the check-id scheme.
+- 2c31973: Add the SDK-adherence and DOM-abuse static-analysis checks to `gridmason lint`
+  (FR-7, SPEC §5.2/§5.5). Four heuristic checks now run over the widget's own
+  source (`gridmason lint` collects the `src/` tree plus the manifest `entry`):
+  `sdk.raw-network` (raw `fetch`/`XMLHttpRequest`/`WebSocket`/`EventSource`/
+  `sendBeacon` outside the SDK — a failure), `sdk.token-reach` (ambient
+  credential/storage surfaces — `document.cookie`, Web Storage, `indexedDB`,
+  `window.name`), `sdk.obfuscation` (`eval`/`Function`, decode chains, computed
+  global access, dynamic `import()`), and `dom.abuse` (a frontend remote reaching
+  outside its own subtree — advisory warnings for the registry TF tier).
+
+  `CheckContext` gains an optional `sourceFiles` field (additive; manifest-only
+  consumers are unaffected). The checks scan a comment/string-masked view of the
+  source, so the clean `init` templates pass with zero false positives. v0 is
+  heuristics-only: every rule's known bypasses are documented in `docs/checks.md`.
+
 ## 0.0.1
 
 ### Patch Changes
