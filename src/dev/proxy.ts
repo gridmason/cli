@@ -6,6 +6,9 @@
  * exactly as it would be denied by the fixture SDK or by a conforming host
  * (`min(user, widget)`, SPEC §5/§6). The dev server never becomes a data backend;
  * it enforces, then forwards allowed calls to the target and relays its answer.
+ * The forward envelope itself — path and request/response shape — is pinned by
+ * `@gridmason/protocol` (`DEV_PROXY_SDK_PATH` / `DevProxySdkRequest` /
+ * `DevProxySdkResponse`), so `dev` and a host meet on one contract, not two.
  *
  * The capability **grammar** has one definition — `@gridmason/protocol` (§3.1) —
  * so this module parses declared capabilities with `parseCapability` and only
@@ -17,13 +20,13 @@
 import {
   type Capability,
   type CapabilityApi,
+  DEV_PROXY_SDK_PATH,
+  type DevProxySdkRequest,
   formatCapability,
+  isDevProxySdkResponse,
   parseCapability,
 } from '@gridmason/protocol';
 import type { SdkMethod } from '@gridmason/sdk/noop';
-
-/** The wire path a proxied SDK call is POSTed to on the `--proxy` target host. */
-export const PROXY_SDK_PATH = '/__gridmason_dev__/sdk';
 
 /** A capability a gated SDK call requires: an api plus the scope path derived from the call. */
 export interface RequiredCapability {
@@ -32,10 +35,13 @@ export interface RequiredCapability {
   readonly scopePath: readonly string[];
 }
 
-/** One SDK call crossing the proxy: the dotted method and the widget's argument list. */
-export interface SdkCall {
+/**
+ * One SDK call crossing the proxy — the protocol's {@link DevProxySdkRequest}
+ * envelope with its `method` narrowed to the SDK's known {@link SdkMethod}
+ * vocabulary, which {@link requiredCapability} switches on to derive the gate.
+ */
+export interface SdkCall extends DevProxySdkRequest {
   readonly method: SdkMethod;
-  readonly args: readonly unknown[];
 }
 
 /**
@@ -120,7 +126,7 @@ export type ProxyOutcome =
  * target. A denied call **never reaches the target** — enforcement is a gate in
  * front of the transport, not a filter after it. Ungated calls (`requiredCapability`
  * → `null`) forward without a check. The target is expected to answer
- * `POST <proxyUrl>${PROXY_SDK_PATH}` with `{ ok, value }` (see docs/dev-server.md).
+ * `POST <proxyUrl>${DEV_PROXY_SDK_PATH}` with `{ ok, value }` (see docs/dev-server.md).
  */
 export async function enforceAndForward(
   call: SdkCall,
@@ -137,13 +143,14 @@ export async function enforceAndForward(
 
 /** POST the call to the target host and relay its answer. */
 async function forward(call: SdkCall, proxyUrl: string, fetchImpl: typeof fetch): Promise<ProxyOutcome> {
-  const target = new URL(PROXY_SDK_PATH, ensureTrailingBase(proxyUrl));
+  const target = new URL(DEV_PROXY_SDK_PATH, ensureTrailingBase(proxyUrl));
+  const request: DevProxySdkRequest = { method: call.method, args: call.args };
   let res: Response;
   try {
     res = await fetchImpl(target, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ method: call.method, args: call.args }),
+      body: JSON.stringify(request),
     });
   } catch (err) {
     return { status: 'error', message: `proxy target unreachable: ${(err as Error).message}` };
@@ -157,11 +164,13 @@ async function forward(call: SdkCall, proxyUrl: string, fetchImpl: typeof fetch)
   } catch {
     return { status: 'error', message: 'proxy target returned a non-JSON body' };
   }
-  const body = payload as { ok?: unknown; value?: unknown; error?: unknown };
-  if (body.ok === false) {
-    return { status: 'error', message: typeof body.error === 'string' ? body.error : 'proxy target reported an error' };
+  if (!isDevProxySdkResponse(payload)) {
+    return { status: 'error', message: 'proxy target returned a malformed response' };
   }
-  return { status: 'forwarded', value: body.value };
+  if (!payload.ok) {
+    return { status: 'error', message: payload.error };
+  }
+  return { status: 'forwarded', value: payload.value };
 }
 
 /** The {@link Capability} object form of a required capability, for a denial report. */
