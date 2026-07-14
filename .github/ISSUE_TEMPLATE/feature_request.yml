@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a new command, flag, or capability for the gridmason CLI.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do that the CLI does not support today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The command, flag, or behavior you would like. Sketch the surface if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links to the relevant SPEC section (docs/SPEC.md) or a related issue, if any.
+    validations:
+      required: false
