@@ -81,11 +81,16 @@ describe('global flags', () => {
     expect(parsed.command).toBe('publish');
   });
 
-  it('--offline is a known flag on verify', async () => {
+  it('--offline is wired and enforces the blind-root refusal', async () => {
+    // `--offline` now runs the real `.gmb` path; with no trust config supplied it
+    // fails closed before touching the bundle (SPEC §4.4). Full behavior is
+    // covered in verify-offline.test.ts.
     const { code, out } = await drive(['verify', './widget.gmb', '--offline', '--json']);
-    expect(code).toBe(0);
-    const parsed = JSON.parse(out) as { command: string };
+    expect(code).toBe(2);
+    const parsed = JSON.parse(out) as { command: string; status: string; code: string };
     expect(parsed.command).toBe('verify');
+    expect(parsed.status).toBe('error');
+    expect(parsed.code).toBe('no-trust-config');
   });
 });
 

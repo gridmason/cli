@@ -311,12 +311,15 @@ describe('verify command — end to end through run()', () => {
     expect(VERIFY_RELEASE_REASONS).toContain(parsed.reason);
   });
 
-  it('still reports --offline as deferred (not implemented)', async () => {
+  it('routes --offline to the real bundle path (blind-root refusal without config)', async () => {
+    // --offline now runs the `.gmb` verifier; with no trust config it fails closed
+    // before reading the bundle. Full offline behavior is in verify-offline.test.ts.
     const cap = capture();
     const code = await run(['verify', artifactPath, '--offline', '--json'], cap.io);
-    expect(code).toBe(0);
-    const parsed = JSON.parse(cap.out()) as { command: string; status: string };
+    expect(code).toBe(2);
+    const parsed = JSON.parse(cap.out()) as { command: string; status: string; code: string };
     expect(parsed.command).toBe('verify');
-    expect(parsed.status).toBe('not-implemented');
+    expect(parsed.status).toBe('error');
+    expect(parsed.code).toBe('no-trust-config');
   });
 });
