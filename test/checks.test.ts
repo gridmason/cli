@@ -19,7 +19,6 @@ import { FRAMEWORKS } from '../src/templates/index.js';
 import { planScaffold } from '../src/init/files.js';
 import {
   checks,
-  dependencyDagCheck,
   hasFailure,
   manifestCapabilitiesCheck,
   manifestChecks,

@@ -45,6 +45,17 @@ name: `--registry <url>` (defaults to config, then the flagship registry),
 
 Run `gridmason <command> --help` for the details of any command.
 
+## Documentation
+
+Full guides and reference live in [`docs/`](docs/README.md):
+
+- [**`gridmason widget init`**](docs/widget-init.md) and the
+  [**`init` templates**](docs/templates.md) — scaffold a project.
+- [**`gridmason dev`**](docs/dev-server.md) — the local author loop.
+- [**`gridmason lint` — the check-id reference**](docs/checks.md) — every check
+  id `lint` (and the registry) can raise: what it means, the review tier it
+  feeds, and how to fix it.
+
 ## Development
 
 ```bash
