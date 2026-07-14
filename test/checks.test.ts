@@ -127,13 +127,19 @@ describe('manifest.capabilities check (driven by capabilityObjectVectors)', () =
 });
 
 describe('check registry + runner', () => {
-  it('registers the manifest-lint checks and the dependency-DAG check in this phase', () => {
-    expect(checks).toEqual([...manifestChecks, dependencyDagCheck]);
+  it('keeps the manifest-lint checks first and registers the L-E2 checks', () => {
+    // The manifest lint (#11) leads the report; the L-E2 epic appends the
+    // SDK-adherence + DOM-abuse checks (#12) and the dependency-DAG check (#13).
+    expect(checks.slice(0, manifestChecks.length)).toEqual(manifestChecks);
     expect(checks.map((c) => c.id)).toEqual([
       'manifest.schema',
       'manifest.tag',
       'manifest.capabilities',
+      'sdk.raw-network',
+      'sdk.token-reach',
+      'sdk.obfuscation',
       'deps.acyclic',
+      'dom.abuse',
     ]);
   });
 

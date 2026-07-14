@@ -13,14 +13,84 @@
  * and nothing else, and the process exit code is `0` iff no check failed (so
  * `publish` and CI fail closed).
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { IO } from '../io.js';
-import { hasFailure, runChecks, type CheckContext, type CheckResult } from '../checks/index.js';
+import { hasFailure, runChecks, type CheckContext, type CheckResult, type SourceFile } from '../checks/index.js';
 import { buildLintErrorReport, buildLintReport } from './report.js';
 
 /** The manifest file a widget project is anchored on (matches `dev`). */
 const MANIFEST_FILE = 'manifest.json';
+
+/** Extensions the static-analysis checks (#12) treat as widget source. */
+const SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx']);
+
+/** Directories never walked for source (dependencies and build output, not authored code). */
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', '.git']);
+
+/** A per-file cap so a stray large/generated file cannot blow up a lint run. */
+const MAX_SOURCE_BYTES = 1_000_000;
+
+/** A plain, non-null, non-array object (for reading the untrusted manifest defensively). */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Project-relative, forward-slashed path — the portable form a finding reports. */
+function posixRelative(root: string, abs: string): string {
+  return path.relative(root, abs).split(path.sep).join('/');
+}
+
+/** Read one source file into a {@link SourceFile}, or skip it (too big / unreadable). */
+async function readSourceFile(root: string, abs: string, into: Map<string, SourceFile>): Promise<void> {
+  const rel = posixRelative(root, abs);
+  if (into.has(rel)) return;
+  try {
+    const contents = await readFile(abs, 'utf8');
+    if (contents.length <= MAX_SOURCE_BYTES) {
+      into.set(rel, { path: rel, contents });
+    }
+  } catch {
+    // A file that races away or is unreadable simply is not analysed.
+  }
+}
+
+/** Recursively gather source-extension files under `dir`, skipping deps/build output. */
+async function walkSources(root: string, dir: string, into: Map<string, SourceFile>): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return; // no such directory (e.g. a project with no `src/`) — nothing to add
+  }
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRS.has(entry.name)) {
+        await walkSources(root, abs, into);
+      }
+    } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+      await readSourceFile(root, abs, into);
+    }
+  }
+}
+
+/**
+ * Collect the widget's own source for the static-analysis checks (#12): every
+ * source-extension file under `src/`, plus the manifest `entry` if it resolves to
+ * a file outside that tree. This is the CLI's local proxy for what the registry
+ * analyses in the uploaded artifact; a manifest-only context (no source found)
+ * simply leaves those checks with nothing to flag.
+ */
+async function collectSourceFiles(root: string, manifest: unknown): Promise<SourceFile[]> {
+  const files = new Map<string, SourceFile>();
+  await walkSources(root, path.join(root, 'src'), files);
+  const entry = isObject(manifest) && typeof manifest.entry === 'string' ? manifest.entry : undefined;
+  if (entry !== undefined && SOURCE_EXTENSIONS.has(path.extname(entry))) {
+    await readSourceFile(root, path.resolve(root, entry), files);
+  }
+  return [...files.values()];
+}
 
 /** Options `runLint` accepts — the command's flags plus a cwd test seam. */
 export interface LintOptions {
@@ -78,7 +148,12 @@ export async function runLint(opts: LintOptions, io: IO): Promise<number> {
     return reportLoadError('invalid-json', `${MANIFEST_FILE} is not valid JSON: ${(err as Error).message}`, io, opts.json);
   }
 
-  const ctx: CheckContext = { manifest, ...(opts.registry !== undefined ? { registry: opts.registry } : {}) };
+  const sourceFiles = await collectSourceFiles(root, manifest);
+  const ctx: CheckContext = {
+    manifest,
+    sourceFiles,
+    ...(opts.registry !== undefined ? { registry: opts.registry } : {}),
+  };
   const results = runChecks(ctx);
   const failed = hasFailure(results);
 

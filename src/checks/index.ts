@@ -12,7 +12,7 @@
  * the SDK-adherence static analysis (#12), and the dependency-DAG check + the
  * `--json` report / tier mapping (#13).
  */
-export type { Check, CheckContext, CheckResult, CheckStatus } from './types.js';
+export type { Check, CheckContext, CheckResult, CheckStatus, SourceFile } from './types.js';
 export { checks, runChecks, hasFailure } from './run.js';
 export {
   manifestChecks,
@@ -20,6 +20,8 @@ export {
   manifestTagCheck,
   manifestCapabilitiesCheck,
 } from './manifest.js';
+export { sdkChecks, sdkRawNetworkCheck, sdkTokenReachCheck, sdkObfuscationCheck } from './sdk.js';
+export { domChecks, domAbuseCheck } from './dom.js';
 export { dependencyChecks, dependencyDagCheck, findRequiresCycle } from './deps.js';
 export {
   REVIEW_TIERS,
