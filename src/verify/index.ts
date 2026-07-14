@@ -15,9 +15,15 @@ export { runVerify, type VerifyRunDeps, type VerifyRunArgs } from './run.js';
 export {
   runVerifyOffline,
   enforcePackedFiles,
+  resolveGmbBundle,
+  isSafeRelativePath,
+  validatePayloadFiles,
+  MAX_BUNDLE_FILE_BYTES,
+  MAX_BUNDLE_TOTAL_BYTES,
   type VerifyOfflineDeps,
   type VerifyOfflineArgs,
   type PackedFilesResult,
+  type BundleSourceResult,
 } from './bundle.js';
 export { formatVerdict, type VerifyOutcome, type VerifyErrorCode, type VerdictRender } from './verdict.js';
 export { loadTrustConfig, type TrustConfig, type TrustConfigResult, type TrustConfigSource } from './trust-config.js';

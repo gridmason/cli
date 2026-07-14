@@ -86,6 +86,25 @@ A JSON document. Binary keys are base64-encoded (decoded to bytes internally):
 - **`logPublicKey`** (required) — the pinned transparency-log checkpoint key the
   inclusion proof is verified against.
 
+## Remote fetch hardening
+
+When the artifact reference is an `http(s)://` URL (the online path, and
+`bundle export --release <url>`), the body is untrusted input read *before* any
+validation. The CLI fetches it through one hardened path (`src/net.ts`) that
+bounds what a hostile or misbehaving endpoint can do:
+
+- **Scheme** — only `http(s)` URLs are fetched (no `file:` / `data:` / etc.),
+  checked on the requested and the final URL.
+- **Redirects refused** — `redirect: "error"`; the CLI fetches exactly the URL it
+  was given and never silently hops to an unvetted origin.
+- **Size cap** — the body is streamed under a hard **16 MiB** cap: a declared
+  `Content-Length` over the cap is refused up front, and the running total is
+  enforced chunk-by-chunk (a chunked or absent length cannot stream unbounded bytes
+  into memory). Trust-metadata documents are small; the cap bounds abuse, not use.
+
+A cap breach, a redirect, or a bad scheme fails as an unreadable artifact (exit
+`2`) — no partial or oversized body ever reaches the verifier.
+
 ## Verdicts
 
 On success (`--json`): `{ "command": "verify", "status": "verified", "artifact",

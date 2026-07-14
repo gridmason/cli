@@ -23,7 +23,7 @@ export interface VerifyOfflineArgs {
 }
 
 /** The result of reading + shape-guarding a `.gmb` file. */
-type BundleSourceResult =
+export type BundleSourceResult =
   | { readonly ok: true; readonly bundle: GmbBundle }
   | { readonly ok: false; readonly code: 'artifact-unreadable' | 'artifact-malformed'; readonly message: string };
 
@@ -56,8 +56,12 @@ function decodedUpperBound(base64: string): number {
  * against a filesystem/URL base, so a traversal- or absolute-shaped path is
  * rejected at the structural guard (never handed onward), independent of the fact
  * that verification itself writes nothing.
+ *
+ * Exported so the `bundle export` writer applies the *identical* servable-key rule
+ * when it reads a project's files to pack — a bundle can only ever carry paths this
+ * guard would also accept on the way back in.
  */
-function isSafeRelativePath(path: string): boolean {
+export function isSafeRelativePath(path: string): boolean {
   if (path.length === 0 || path.includes('\0')) return false;
   if (path.startsWith('/') || path.startsWith('\\')) return false;
   if (/^[a-zA-Z]:/.test(path)) return false; // Windows drive-absolute (e.g. C:\)
@@ -152,11 +156,18 @@ export function validatePayloadFiles(
  * a malformed hash string, a bad signature — flows through so the library's own
  * stable verdicts (`bundle-hash-tampered`, `bundle-malformed`, the chain reasons)
  * survive rather than becoming a CLI error.
+ *
+ * Takes the `readFile` function directly (not the whole {@link VerifyOfflineDeps})
+ * so `bundle inspect` can reuse this exact reader — the same caps, path guards, and
+ * malformed-shape handling — with nothing but a file reader.
  */
-async function resolveGmbBundle(deps: VerifyOfflineDeps, ref: string): Promise<BundleSourceResult> {
+export async function resolveGmbBundle(
+  readFile: (path: string) => Promise<string>,
+  ref: string,
+): Promise<BundleSourceResult> {
   let text: string;
   try {
-    text = await deps.readFile(ref);
+    text = await readFile(ref);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return { ok: false, code: 'artifact-unreadable', message: `could not read bundle ${ref}: ${detail}` };
@@ -250,7 +261,7 @@ export async function runVerifyOffline(deps: VerifyOfflineDeps, args: VerifyOffl
     return formatVerdict({ kind: 'error', code: trust.code, message: trust.message }, args);
   }
 
-  const resolved = await resolveGmbBundle(deps, args.ref);
+  const resolved = await resolveGmbBundle(deps.readFile, args.ref);
   if (!resolved.ok) {
     return formatVerdict({ kind: 'error', code: resolved.code, message: resolved.message }, args);
   }

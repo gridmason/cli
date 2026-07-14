@@ -24,6 +24,9 @@ Reference and guides for the `gridmason` binary — the widget-author devkit
 - [**`gridmason verify`**](verify.md) — the local trust check (online + offline
   `.gmb`): dual signature + content hash + log inclusion against pinned roots, the
   verdict enums, the trust-config format, and the exit-code contract.
+- [**`gridmason bundle export / inspect`**](bundle.md) — produce and inspect the
+  signed offline `.gmb` bundle: the archive layout, file classification, the
+  self-check, and the round trip with `verify --offline`.
 
 ## Lint / review reference
 
