@@ -9,10 +9,11 @@ automated checks a registry review runs, locally, so "green locally" predicts
 Engineering spec: [`docs/SPEC.md`](docs/SPEC.md) · Build plan:
 [`docs/specs/cli-v0/spec.md`](docs/specs/cli-v0/spec.md).
 
-> **Status: scaffold.** The command surface below is wired and documented, but
-> the commands are stubs that print a "not yet implemented" notice — behavior
-> lands across the cli-v0 milestones (SPEC §10). Track progress in the repo's
-> issues.
+> **Status: early.** The command surface below is wired and documented.
+> `gridmason widget init` scaffolds a project (see
+> [`docs/widget-init.md`](docs/widget-init.md)); the remaining commands are stubs
+> that print a "not yet implemented" notice — behavior lands across the cli-v0
+> milestones (SPEC §10). Track progress in the repo's issues.
 
 ## Install
 

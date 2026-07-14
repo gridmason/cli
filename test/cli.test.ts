@@ -86,10 +86,16 @@ describe('global flags', () => {
 });
 
 describe('nested command namespaces', () => {
-  it('routes `widget init`', async () => {
+  it('routes `widget init` and enforces its required answers', async () => {
+    // Non-interactive (no TTY under vitest) with no `--publisher`: the command is
+    // wired to the real `init`, which reports a stable JSON error and exits 1
+    // rather than scaffolding. Full scaffolding is covered in init.test.ts.
     const { code, out } = await drive(['widget', 'init', 'my-widget', '--json']);
-    expect(code).toBe(0);
-    expect((JSON.parse(out) as { command: string }).command).toBe('widget init');
+    expect(code).toBe(1);
+    const parsed = JSON.parse(out) as { command: string; status: string; code: string };
+    expect(parsed.command).toBe('widget init');
+    expect(parsed.status).toBe('error');
+    expect(parsed.code).toBe('missing-answer');
   });
 
   it('shows namespace help for bare `widget`', async () => {
