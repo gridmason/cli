@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { Command, CommanderError } from 'commander';
 import { registerCommands } from './commands/index.js';
+import { ExitCodeError } from './exit.js';
 import { stdIO, type IO } from './io.js';
 
 // Read the package version at runtime rather than importing package.json, which
@@ -73,6 +74,10 @@ export async function run(argv: string[], io: IO = stdIO): Promise<number> {
     if (err instanceof CommanderError) {
       // Help and --version throw with exitCode 0; parse errors carry their own.
       return err.exitCode;
+    }
+    if (err instanceof ExitCodeError) {
+      // A command reported its own diagnostics and asked for this exit code.
+      return err.code;
     }
     throw err;
   }
