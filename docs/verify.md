@@ -28,6 +28,25 @@ re-checks each packed file's bytes against the verified hash map with `verifyChu
 so a bundle that packs bytes not matching its signed hash is caught here rather than
 only at load time.
 
+### `.gmb` structural guard (untrusted input)
+
+A `.gmb` is read *before* any verification, and the verifier canonicalizes the
+whole payload (every packed byte) to seal-check it — so a hostile bundle is
+structurally gated first, failing fast with `artifact-malformed` (exit `2`) and
+never reaching the verifier:
+
+- **Size caps.** Each packed file is capped at **8 MiB decoded** and the payload
+  total at **64 MiB decoded**, checked against the base64 string length (a cheap
+  no-decode upper bound) so an oversized bundle cannot exhaust memory.
+- **Path safety.** Every packed file path must be a safe relative key — absolute
+  paths and `..` traversal segments are rejected, so no downstream consumer of the
+  verified `url → hash` map is handed a hostile path.
+- **Shape.** `entry` must be a file and `chunks`/`schemas`/`docs` must each be
+  arrays of files; a missing or non-array section is malformed.
+
+Everything else — a broken seal, a bad signature, an unpinned root — flows through
+to the library's stable verdict rather than a structural error.
+
 ## Trust roots are pinned — never fetched blind
 
 `verify` never trusts a root supplied over the network without a pin (protocol

@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { run } from '../src/cli.js';
 import type { IO } from '../src/io.js';
 import { enforcePackedFiles, runVerifyOffline, type VerifyOfflineDeps } from '../src/verify/index.js';
+import { MAX_BUNDLE_FILE_BYTES, validatePayloadFiles } from '../src/verify/bundle.js';
 
 function zeroKeyB64(n: number): string {
   return Buffer.alloc(n).toString('base64');
@@ -192,6 +193,97 @@ describe('runVerifyOffline — operational errors', () => {
   });
 });
 
+describe('validatePayloadFiles — structural guard (untrusted .gmb hardening)', () => {
+  /** A minimal valid file-section payload; overrides break one section per test. */
+  function filesPayload(over: Record<string, unknown> = {}): Record<string, unknown> {
+    return { entry: { path: 'index.js', bytes: '' }, chunks: [], schemas: [], docs: [], ...over };
+  }
+
+  it('accepts a well-formed payload', () => {
+    expect(validatePayloadFiles(filesPayload())).toEqual({ ok: true });
+  });
+
+  it('rejects a missing entry', () => {
+    const result = validatePayloadFiles({ chunks: [], schemas: [], docs: [] });
+    expect(result.ok).toBe(false);
+  });
+
+  for (const section of ['chunks', 'schemas', 'docs'] as const) {
+    it(`rejects an omitted ${section} section as malformed`, () => {
+      const result = validatePayloadFiles(filesPayload({ [section]: undefined }));
+      expect(result).toEqual({ ok: false, message: `payload.${section} must be an array of files` });
+    });
+
+    it(`rejects a non-array ${section} section as malformed`, () => {
+      const result = validatePayloadFiles(filesPayload({ [section]: 'not-an-array' }));
+      expect(result).toEqual({ ok: false, message: `payload.${section} must be an array of files` });
+    });
+  }
+
+  it('rejects a traversal path (../) without echoing it', () => {
+    const result = validatePayloadFiles(filesPayload({ entry: { path: '../evil', bytes: '' } }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain('unsafe file path');
+      expect(result.message).not.toContain('evil');
+    }
+  });
+
+  it('rejects an absolute path', () => {
+    const result = validatePayloadFiles(filesPayload({ entry: { path: '/etc/passwd', bytes: '' } }));
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a traversal path packed in a chunk', () => {
+    const result = validatePayloadFiles(filesPayload({ chunks: [{ path: 'a/../../b.js', bytes: '' }] }));
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a file over the per-file size cap (checked before decode)', () => {
+    // base64 length just past the cap's upper bound — no multi-MB decode happens.
+    const oversized = 'A'.repeat(Math.ceil((MAX_BUNDLE_FILE_BYTES * 4) / 3) + 8);
+    const result = validatePayloadFiles(filesPayload({ entry: { path: 'index.js', bytes: oversized } }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('per-file cap');
+  });
+
+  it('rejects a payload over the total size cap (many within-cap files)', () => {
+    // One ~735 KiB (decoded) base64 string, referenced across 100 files → >64 MiB total.
+    const chunkBytes = 'A'.repeat(980_000);
+    const chunks = Array.from({ length: 99 }, (_, i) => ({ path: `c${i}.js`, bytes: chunkBytes }));
+    const result = validatePayloadFiles(filesPayload({ entry: { path: 'index.js', bytes: chunkBytes }, chunks }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('total cap');
+  });
+});
+
+describe('verify --offline — structural guard end to end', () => {
+  /** A bundle JSON whose payload overrides one section; the seal is irrelevant (guard runs first). */
+  function rawBundleJson(payloadOver: Record<string, unknown>): string {
+    const payload = { ...(makePayload() as Record<string, unknown>), ...payloadOver };
+    return JSON.stringify({ formatVersion: '1.0', producedBy: REGISTRY, contentHash: `sha2-256:${'0'.repeat(64)}`, payload });
+  }
+
+  it('fails a bundle that omits its chunks section with artifact-malformed', async () => {
+    const files = { '/pkg.gmb': rawBundleJson({ chunks: undefined }), '/trust.json': JSON.stringify(makeTrustConfig()) };
+    const render = await runVerifyOffline(memDeps(files), { ref: '/pkg.gmb', trustConfig: '/trust.json', json: true });
+    const parsed = JSON.parse(render.stdout) as { code: string };
+    expect(render.exitCode).toBe(2);
+    expect(parsed.code).toBe('artifact-malformed');
+  });
+
+  it('fails a bundle packing a traversal path with artifact-malformed', async () => {
+    const files = {
+      '/pkg.gmb': rawBundleJson({ entry: { path: '../../escape.js', bytes: b64('x') } }),
+      '/trust.json': JSON.stringify(makeTrustConfig()),
+    };
+    const render = await runVerifyOffline(memDeps(files), { ref: '/pkg.gmb', trustConfig: '/trust.json', json: true });
+    const parsed = JSON.parse(render.stdout) as { code: string };
+    expect(render.exitCode).toBe(2);
+    expect(parsed.code).toBe('artifact-malformed');
+  });
+});
+
 describe('runVerifyOffline — no-tag-echo (SPEC §7)', () => {
   it('every refusal reason is a member of the bundle reason set', async () => {
     const bundles: unknown[] = [
@@ -263,6 +355,18 @@ describe('enforcePackedFiles — verifyChunk over the packed bytes', () => {
     const bundle = bundleWithPacked([{ path: 'index.js', content: 'x' }]);
     const urlHashes = new Map<string, MultihashString>([['missing.js', `sha2-256:${'a'.repeat(64)}`]]);
     expect(await enforcePackedFiles(bundle, urlHashes)).toEqual({ ok: false, path: 'missing.js' });
+  });
+
+  it('does not throw on a bundle whose sections are non-arrays (defensive collection)', async () => {
+    // A malformed bundle that skipped the structural guard must still not crash here.
+    const bundle = {
+      formatVersion: '1.0',
+      producedBy: REGISTRY,
+      contentHash: `sha2-256:${'0'.repeat(64)}`,
+      payload: { entry: { path: 'index.js', bytes: b64('x') }, chunks: 'oops', schemas: null, docs: undefined },
+    } as unknown as GmbBundle;
+    const urlHashes = new Map<string, MultihashString>([['missing.js', `sha2-256:${'a'.repeat(64)}`]]);
+    await expect(enforcePackedFiles(bundle, urlHashes)).resolves.toEqual({ ok: false, path: 'missing.js' });
   });
 });
 

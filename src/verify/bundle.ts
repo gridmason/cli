@@ -32,18 +32,126 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Per-file decoded-size cap (bytes) for a bundle's packed files. A `.gmb` is
+ * untrusted input read *before* any verification, and the pure verifier
+ * canonicalizes the whole payload (every packed base64 string) to compute the
+ * archive hash — so an adversarial bundle packing huge files could exhaust memory
+ * before the protocol ever rules. The cap is enforced up front against the base64
+ * string length (a cheap, no-decode upper bound: decoded ≤ ⌈len·3/4⌉ bytes).
+ */
+export const MAX_BUNDLE_FILE_BYTES = 8 * 1024 * 1024;
+
+/** Total decoded-size cap (bytes) across every packed file in a bundle. See {@link MAX_BUNDLE_FILE_BYTES}. */
+export const MAX_BUNDLE_TOTAL_BYTES = 64 * 1024 * 1024;
+
+/** Cheap upper bound on the decoded byte length of a base64 string, without decoding it. */
+function decodedUpperBound(base64: string): number {
+  return Math.ceil((base64.length * 3) / 4);
+}
+
+/**
+ * Whether `path` is a safe relative servable key — not absolute, no `..`
+ * traversal segment, no NUL, non-empty. Bundle file paths are untrusted and end
+ * up as keys of the verified `url → hash` map a downstream consumer may resolve
+ * against a filesystem/URL base, so a traversal- or absolute-shaped path is
+ * rejected at the structural guard (never handed onward), independent of the fact
+ * that verification itself writes nothing.
+ */
+function isSafeRelativePath(path: string): boolean {
+  if (path.length === 0 || path.includes('\0')) return false;
+  if (path.startsWith('/') || path.startsWith('\\')) return false;
+  if (/^[a-zA-Z]:/.test(path)) return false; // Windows drive-absolute (e.g. C:\)
+  return !path.split(/[/\\]/).includes('..');
+}
+
+/** Narrow an untrusted value to a {@link GmbFile} (object with string `path` + `bytes`), else `undefined`. */
+function toFile(value: unknown): GmbFile | undefined {
+  if (!isObject(value)) return undefined;
+  if (typeof value.path !== 'string' || typeof value.bytes !== 'string') return undefined;
+  return { path: value.path, bytes: value.bytes };
+}
+
+/**
+ * Safely gather every packed file (`entry` + `chunks` + `schemas` + `docs`) from a
+ * payload, guarding each section so a malformed/omitted section coerces to nothing
+ * rather than throwing on a spread. Used by both the structural validation and the
+ * packed-byte enforcement, so neither can be tripped by a missing section.
+ */
+function collectPackedFiles(payload: unknown): GmbFile[] {
+  const out: GmbFile[] = [];
+  if (!isObject(payload)) return out;
+  const entry = toFile(payload.entry);
+  if (entry) out.push(entry);
+  for (const section of [payload.chunks, payload.schemas, payload.docs]) {
+    if (!Array.isArray(section)) continue;
+    for (const item of section) {
+      const file = toFile(item);
+      if (file) out.push(file);
+    }
+  }
+  return out;
+}
+
+/**
+ * Validate a bundle payload's file sections before the payload reaches the pure
+ * verifier: `entry` must be a well-formed file and `chunks`/`schemas`/`docs` must
+ * each be arrays of well-formed files (a missing or non-array section is
+ * malformed); every path must be a safe relative key; and the packed bytes must
+ * stay within the per-file and total size caps. Returns a message on the first
+ * failure. Sizes and hostile paths are never echoed. Exported for direct testing.
+ */
+export function validatePayloadFiles(
+  payload: Record<string, unknown>,
+): { ok: true } | { ok: false; message: string } {
+  if (toFile(payload.entry) === undefined) {
+    return { ok: false, message: 'payload.entry must be a file with string path and bytes' };
+  }
+  for (const section of ['chunks', 'schemas', 'docs'] as const) {
+    const value = payload[section];
+    if (!Array.isArray(value)) {
+      return { ok: false, message: `payload.${section} must be an array of files` };
+    }
+    for (const item of value) {
+      if (toFile(item) === undefined) {
+        return { ok: false, message: `payload.${section} entries must be files with string path and bytes` };
+      }
+    }
+  }
+
+  let total = 0;
+  for (const file of collectPackedFiles(payload)) {
+    if (!isSafeRelativePath(file.path)) {
+      return { ok: false, message: 'payload contains an unsafe file path (absolute or traversal)' };
+    }
+    const size = decodedUpperBound(file.bytes);
+    if (size > MAX_BUNDLE_FILE_BYTES) {
+      return { ok: false, message: `a packed file exceeds the ${MAX_BUNDLE_FILE_BYTES}-byte per-file cap` };
+    }
+    total += size;
+    if (total > MAX_BUNDLE_TOTAL_BYTES) {
+      return { ok: false, message: `packed files exceed the ${MAX_BUNDLE_TOTAL_BYTES}-byte total cap` };
+    }
+  }
+  return { ok: true };
+}
+
+/**
  * Read a `.gmb` bundle from disk into the {@link GmbBundle} structure
  * `verifyOfflineBundle` consumes. A `.gmb` is a self-contained JSON document (the
  * servable file bytes are base64 inside the payload), so this reads and parses it;
  * there is no separate archive/unzip step.
  *
- * Only the minimum structure needed to hand the object to the pure verifier is
- * guarded here — a non-object top level, a `contentHash` that is not a string, or
- * a missing `payload` — so the library's own stable verdicts survive (a
- * well-formed-JSON bundle whose seal is broken comes back as `bundle-hash-tampered`,
- * a malformed hash *string* as `bundle-malformed`, and so on, rather than a CLI
- * error). The `contentHash` string guard is load-bearing: the verifier reads it as
- * a string, so a non-string would throw rather than yield a verdict.
+ * The guard is deliberately narrow but covers what an *adversarial* bundle could
+ * do before the pure verifier runs — the verifier canonicalizes the whole payload
+ * to compute the archive hash, so a hostile bundle must not be able to throw or
+ * exhaust memory in transit. It checks: a non-object top level, a `contentHash`
+ * that is not a string (the verifier reads it as a string and would otherwise
+ * throw), a missing `payload`, malformed/omitted file sections (a spread over a
+ * non-array would throw), unsafe file paths (absolute/`..`), and the per-file /
+ * total size caps ({@link validatePayloadFiles}). Everything else — a broken seal,
+ * a malformed hash string, a bad signature — flows through so the library's own
+ * stable verdicts (`bundle-hash-tampered`, `bundle-malformed`, the chain reasons)
+ * survive rather than becoming a CLI error.
  */
 async function resolveGmbBundle(deps: VerifyOfflineDeps, ref: string): Promise<BundleSourceResult> {
   let text: string;
@@ -69,6 +177,10 @@ async function resolveGmbBundle(deps: VerifyOfflineDeps, ref: string): Promise<B
   if (!isObject(raw.payload)) {
     return { ok: false, code: 'artifact-malformed', message: `bundle ${ref} is missing its payload` };
   }
+  const files = validatePayloadFiles(raw.payload);
+  if (!files.ok) {
+    return { ok: false, code: 'artifact-malformed', message: `bundle ${ref}: ${files.message}` };
+  }
   return { ok: true, bundle: raw as unknown as GmbBundle };
 }
 
@@ -92,19 +204,24 @@ export type PackedFilesResult = { readonly ok: true } | { readonly ok: false; re
  * every path in the verified `urlHashes`, requiring the bundle to pack that file
  * and its bytes to match, so "the reviewed hash is the runnable artifact" is
  * audited here rather than only at load (SPEC §6).
+ *
+ * Defensive on its own: it gathers files through the section-guarding collector
+ * (never spreads a possibly-non-array section) and re-checks the per-file size cap
+ * before decoding, so it is safe even if called directly on an unvalidated bundle.
+ * In the normal flow {@link resolveGmbBundle} has already enforced both.
  */
 export async function enforcePackedFiles(
   bundle: GmbBundle,
   urlHashes: ReadonlyMap<string, MultihashString>,
 ): Promise<PackedFilesResult> {
-  const payload = bundle.payload;
   const packed = new Map<string, GmbFile>();
-  for (const file of [payload.entry, ...payload.chunks, ...payload.schemas, ...payload.docs]) {
+  for (const file of collectPackedFiles(bundle.payload)) {
     packed.set(file.path, file);
   }
   for (const [path, expected] of urlHashes) {
     const file = packed.get(path);
     if (!file) return { ok: false, path };
+    if (decodedUpperBound(file.bytes) > MAX_BUNDLE_FILE_BYTES) return { ok: false, path };
     const bytes = new Uint8Array(Buffer.from(file.bytes, 'base64'));
     if (!(await verifyChunk(bytes, expected))) return { ok: false, path };
   }
