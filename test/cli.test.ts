@@ -124,12 +124,18 @@ describe('nested command namespaces', () => {
     expect(out).toContain('init');
   });
 
-  it('routes `bundle export` and `bundle inspect`', async () => {
-    const exported = await drive(['bundle', 'export', '--json']);
-    expect((JSON.parse(exported.out) as { command: string }).command).toBe('bundle export');
+  it('routes `bundle export` and `bundle inspect` to the real implementations', async () => {
+    // No manifest.json at the CLI package root and no such .gmb, so the wired
+    // bundle commands report their own stable JSON errors rather than stub notices.
+    const exported = await drive(['bundle', 'export', '--release', './nope.json', '--json']);
+    const ex = JSON.parse(exported.out) as { command: string; status: string };
+    expect(ex.command).toBe('bundle export');
+    expect(ex.status).toBe('error');
 
     const inspected = await drive(['bundle', 'inspect', './widget.gmb', '--json']);
-    expect((JSON.parse(inspected.out) as { command: string }).command).toBe('bundle inspect');
+    const ins = JSON.parse(inspected.out) as { command: string; status: string };
+    expect(ins.command).toBe('bundle inspect');
+    expect(ins.status).toBe('error');
   });
 });
 
