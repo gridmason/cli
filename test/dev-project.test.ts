@@ -4,6 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { planScaffold } from '../src/init/files.js';
 import { writeProject } from '../src/init/scaffold.js';
+import { FRAMEWORKS } from '../src/templates/index.js';
+import { harnessBareSpecifiers } from '../src/dev/harness.js';
 import {
   DevProjectError,
   declaredCapabilities,
@@ -106,6 +108,30 @@ describe('categorize', () => {
     expect(categorize(root, path.join(root, 'fixtures/default.json'))).toBe('fixtures');
     expect(categorize(root, path.join(root, 'src/entry.js'))).toBe('source');
   });
+});
+
+describe('harness import map covers the templates’ @gridmason imports', () => {
+  // The fixture harness mounts a scaffolded entry as plain browser ESM, so every
+  // bare `@gridmason/*` specifier a template imports must be in the harness import
+  // map — otherwise the browser cannot resolve it and the mount fails. (This is
+  // the contract that broke when the templates began consuming real SDK helpers.)
+  const covered = new Set(harnessBareSpecifiers());
+
+  for (const framework of FRAMEWORKS) {
+    it(`resolves every @gridmason specifier the ${framework} template imports`, () => {
+      const scaffold = planScaffold({ name: 'Cov', publisher: 'acme', kind: 'widget', framework });
+      const specifiers = new Set<string>();
+      for (const file of scaffold.files) {
+        for (const match of file.contents.matchAll(/from\s+['"](@gridmason\/[^'"]+)['"]/g)) {
+          specifiers.add(match[1]!);
+        }
+      }
+      expect(specifiers.size).toBeGreaterThan(0);
+      for (const specifier of specifiers) {
+        expect(covered, `harness import map is missing "${specifier}"`).toContain(specifier);
+      }
+    });
+  }
 });
 
 describe('DevProjectError', () => {

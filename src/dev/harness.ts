@@ -87,15 +87,39 @@ ${clientScript()}
 `;
 }
 
+/**
+ * The public `@gridmason/*` entry points the harness resolves to browser ESM,
+ * mapped to their built file under the served `/@npm/` tree. The `@gridmason/sdk`
+ * keys mirror that package's own export map (`@gridmason/sdk@0.2.0`) so a
+ * scaffolded `entry` resolves whichever helpers it imports — the vanilla template
+ * pulls the shared core (`@gridmason/sdk`) and `@gridmason/sdk/noop`, the fixture
+ * harness pulls `@gridmason/sdk/fixture`, and the React/Vue templates their
+ * framework helper. (React/Vue additionally import their framework by bare
+ * specifier from the host's shared scope, which the standalone harness does not
+ * supply — those entries mount through the dashboard sideload; see the module doc.)
+ */
+const NPM_MODULES: Record<string, string> = {
+  '@gridmason/protocol': '@gridmason/protocol/dist/index.js',
+  '@gridmason/sdk': '@gridmason/sdk/dist/index.js',
+  '@gridmason/sdk/noop': '@gridmason/sdk/dist/noop/index.js',
+  '@gridmason/sdk/fixture': '@gridmason/sdk/dist/fixture/index.js',
+  '@gridmason/sdk/vanilla': '@gridmason/sdk/dist/helpers/vanilla/index.js',
+  '@gridmason/sdk/react': '@gridmason/sdk/dist/helpers/react/index.js',
+  '@gridmason/sdk/vue': '@gridmason/sdk/dist/helpers/vue/index.js',
+};
+
 /** The import map that resolves the browser-side `@gridmason/*` ESM. */
 function importMap(): { imports: Record<string, string> } {
-  const npm = ENDPOINTS.npm;
-  return {
-    imports: {
-      '@gridmason/protocol': `${npm}@gridmason/protocol/dist/index.js`,
-      '@gridmason/sdk/fixture': `${npm}@gridmason/sdk/dist/fixture/index.js`,
-    },
-  };
+  const imports: Record<string, string> = {};
+  for (const [specifier, file] of Object.entries(NPM_MODULES)) {
+    imports[specifier] = `${ENDPOINTS.npm}${file}`;
+  }
+  return { imports };
+}
+
+/** The bare `@gridmason/*` specifiers the harness import map resolves. */
+export function harnessBareSpecifiers(): readonly string[] {
+  return Object.keys(NPM_MODULES);
 }
 
 /**
