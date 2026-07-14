@@ -56,7 +56,7 @@
     "release": "changeset publish"
   },
   "dependencies": {
-    "@gridmason/protocol": "^0.1.0",
+    "@gridmason/protocol": "^0.2.0",
     "@gridmason/sdk": "^0.4.0",
     "@sigstore/sign": "^5.0.0",
     "ajv": "8.17.1",

@@ -2,8 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { Command } from 'commander';
 import type { IO } from '../io.js';
 import { ExitCodeError } from '../exit.js';
-import { notImplemented } from '../notice.js';
-import { runVerify } from '../verify/index.js';
+import { runVerify, runVerifyOffline } from '../verify/index.js';
 import { addGlobalOptions, type GlobalOptions } from './global-options.js';
 
 interface VerifyOptions extends GlobalOptions {
@@ -21,10 +20,10 @@ interface VerifyOptions extends GlobalOptions {
  * Trust roots are pinned/config-supplied only — `--trust-config <path>` or
  * `GRIDMASON_TRUST_CONFIG`; verify never trusts a root fetched blind (SPEC §4.4).
  *
- * `--offline` verifies a `.gmb` bundle against pinned roots with embedded
- * inclusion proofs. That path is deferred until protocol P-E4 ships the `.gmb`
- * format; the flag remains registered and reports not-yet-implemented so the
- * command surface is stable.
+ * `--offline <.gmb>` verifies a self-contained bundle against pinned roots with
+ * its embedded inclusion proofs — the identical chain, air-gapped, delegated to
+ * the protocol's `verifyOfflineBundle` (SPEC §4.5). Same trust rules, same verdict
+ * enum (plus two bundle-only archive-integrity classes), same exit codes.
  */
 export function buildVerify(io: IO): Command {
   const verify = addGlobalOptions(
@@ -38,31 +37,36 @@ export function buildVerify(io: IO): Command {
       .description('verify signature chain + content hash + log inclusion (offline-capable)'),
   );
   verify.action(async (artifact: string, options: VerifyOptions) => {
-    // The offline `.gmb` reader is deferred to protocol P-E4 (see docstring).
-    if (options.offline) {
-      notImplemented('verify', options, io);
-      return;
-    }
+    const args = {
+      ref: artifact,
+      ...(options.trustConfig !== undefined ? { trustConfig: options.trustConfig } : {}),
+      ...(options.json ? { json: true } : {}),
+    };
 
-    const render = await runVerify(
-      {
-        fetchText: async (url) => {
-          const response = await fetch(url);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status} ${response.statusText}`);
-          }
-          return response.text();
-        },
-        readFile: (path) => readFile(path, 'utf8'),
-        env: (name) => process.env[name],
-        now: () => Date.now(),
-      },
-      {
-        ref: artifact,
-        ...(options.trustConfig !== undefined ? { trustConfig: options.trustConfig } : {}),
-        ...(options.json ? { json: true } : {}),
-      },
-    );
+    const render = options.offline
+      ? await runVerifyOffline(
+          {
+            readFile: (path) => readFile(path, 'utf8'),
+            env: (name) => process.env[name],
+            now: () => Date.now(),
+          },
+          args,
+        )
+      : await runVerify(
+          {
+            fetchText: async (url) => {
+              const response = await fetch(url);
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status} ${response.statusText}`);
+              }
+              return response.text();
+            },
+            readFile: (path) => readFile(path, 'utf8'),
+            env: (name) => process.env[name],
+            now: () => Date.now(),
+          },
+          args,
+        );
 
     if (render.stdout) io.out(render.stdout);
     if (render.stderr) io.err(render.stderr);

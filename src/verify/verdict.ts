@@ -1,10 +1,10 @@
-import type { SignatureSubject, VerifyReleaseReason } from '@gridmason/protocol';
+import type { SignatureSubject, VerifyBundleReason } from '@gridmason/protocol';
 
 /**
  * CLI-level failures that stop `verify` *before* the protocol library reaches a
  * verdict — a missing/blind trust configuration, a malformed config file, or an
  * artifact source that could not be fetched/read/shaped. Distinct from a
- * {@link VerifyReleaseReason}: those are the library's cryptographic/trust
+ * {@link VerifyBundleReason}: those are the library's cryptographic/trust
  * verdicts; these are operational problems that mean no verdict was reached.
  *
  * `no-trust-config` is the SPEC §4.4 / §8 blind-root refusal: the CLI never
@@ -20,9 +20,12 @@ export type VerifyErrorCode =
 /**
  * The outcome of a `verify` run, before rendering. A discriminated union over the
  * three terminal states: a clean pass, a library refusal carrying one stable
- * {@link VerifyReleaseReason}, or a CLI-level operational error. The offline
- * `.gmb` path (deferred until protocol P-E4) will produce the same shape, so this
- * type and {@link formatVerdict} are the seam both paths render through.
+ * reason, or a CLI-level operational error. Both the online (`verifyRelease`) and
+ * offline (`verifyOfflineBundle`) paths produce this shape, so this type and
+ * {@link formatVerdict} are the single seam both render through. The refusal
+ * `reason` is typed as {@link VerifyBundleReason}, the superset that adds the two
+ * bundle-only archive-integrity classes to the online `VerifyReleaseReason`
+ * set — an online refusal is always a member, so both paths type-check.
  */
 export type VerifyOutcome =
   | {
@@ -32,7 +35,7 @@ export type VerifyOutcome =
       readonly subject: SignatureSubject;
       readonly fileCount: number;
     }
-  | { readonly kind: 'refused'; readonly reason: VerifyReleaseReason }
+  | { readonly kind: 'refused'; readonly reason: VerifyBundleReason }
   | { readonly kind: 'error'; readonly code: VerifyErrorCode; readonly message: string };
 
 /** What {@link formatVerdict} returns: an exit code plus the text for each stream. */
@@ -53,8 +56,8 @@ export interface VerdictRender {
  * verified, `1` when the library reached a refusal verdict (the artifact is
  * present and well-formed but did not pass a trust/crypto check), and `2` when no
  * verdict could be reached (blind trust config, an unreadable artifact, malformed
- * input). A refusal always prints the protocol's stable {@link VerifyReleaseReason}
- * verbatim — never an input-derived identifier (the no-tag-echo rule, SPEC §7).
+ * input). A refusal always prints the protocol's stable reason verbatim — never
+ * an input-derived identifier (the no-tag-echo rule, SPEC §7).
  */
 export function formatVerdict(outcome: VerifyOutcome, opts: { json?: boolean }): VerdictRender {
   switch (outcome.kind) {
