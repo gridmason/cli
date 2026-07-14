@@ -14,6 +14,17 @@ Reference and guides for the `gridmason` binary — the widget-author devkit
   with, used by `dev` and stories.
 - [**`gridmason dev`**](dev-server.md) — the local dev server and author loop.
 
+## Publish / identity
+
+- [**`gridmason login` / `whoami`**](login-whoami.md) — establish and inspect the
+  OIDC identity used for keyless Sigstore signing (no long-lived key on disk).
+
+## Trust / verify
+
+- [**`gridmason verify`**](verify.md) — the local trust check (online + offline
+  `.gmb`): dual signature + content hash + log inclusion against pinned roots, the
+  verdict enums, the trust-config format, and the exit-code contract.
+
 ## Lint / review reference
 
 - [**`gridmason lint` — the check-id reference**](checks.md) — every check id a

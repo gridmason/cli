@@ -52,7 +52,9 @@ describe('--version', () => {
 
 describe('unimplemented commands', () => {
   it('print a not-yet-implemented notice on stderr', async () => {
-    const { code, out, err } = await drive(['whoami']);
+    // `publish` stands in for a still-stubbed command; `login`/`whoami` are now
+    // implemented (their behavior is covered by login-whoami.test.ts).
+    const { code, out, err } = await drive(['publish']);
     expect(code).toBe(0);
     expect(err).toContain('not yet implemented');
     expect(out).toBe('');
@@ -79,11 +81,16 @@ describe('global flags', () => {
     expect(parsed.command).toBe('publish');
   });
 
-  it('--offline is a known flag on verify', async () => {
+  it('--offline is wired and enforces the blind-root refusal', async () => {
+    // `--offline` now runs the real `.gmb` path; with no trust config supplied it
+    // fails closed before touching the bundle (SPEC §4.4). Full behavior is
+    // covered in verify-offline.test.ts.
     const { code, out } = await drive(['verify', './widget.gmb', '--offline', '--json']);
-    expect(code).toBe(0);
-    const parsed = JSON.parse(out) as { command: string };
+    expect(code).toBe(2);
+    const parsed = JSON.parse(out) as { command: string; status: string; code: string };
     expect(parsed.command).toBe('verify');
+    expect(parsed.status).toBe('error');
+    expect(parsed.code).toBe('no-trust-config');
   });
 });
 
