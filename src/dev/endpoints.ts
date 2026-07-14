@@ -15,8 +15,16 @@ export const ENDPOINTS = {
   fixtures: '/@dev/fixtures',
   /** GET the active page context (a `--context` preset or `default.json`'s). */
   context: '/@dev/context',
-  /** The Server-Sent-Events hot-reload stream. */
+  /** The Server-Sent-Events hot-reload stream (also carries `inspect` frames). */
   events: '/@dev/events',
+  /** The standalone SDK-inspector page (declared capabilities vs observed calls). */
+  inspector: '/@dev/inspector',
+  /**
+   * The SDK-inspector data channel: GET the current session (declared capabilities
+   * + observed calls) for catch-up; POST one observed call for the harness to
+   * report a gated SDK call it saw the widget make.
+   */
+  inspect: '/@dev/inspect',
   /** POST a proxied SDK call (only mounted in `--proxy` mode). */
   sdk: '/@dev/sdk',
   /** Prefix under which the browser-side `@gridmason/*` ESM is served. */

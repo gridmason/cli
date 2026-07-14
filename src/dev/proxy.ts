@@ -76,16 +76,32 @@ function recordTypeOf(first: Record<string, unknown>): string | null {
 }
 
 /**
- * Whether the widget's `declared` capabilities grant `required` — some declared
- * capability has the same api and a scope path that is a **prefix** of the
- * required one (unscoped grants all; `records.read:recordType` grants every type;
- * `records.read:recordType:customer` grants only `customer`).
+ * The specific declared capability that grants `required`, or `null` when none
+ * does — a declared capability grants when it has the same api and a scope path
+ * that is a **prefix** of the required one (unscoped grants all; `records.read:recordType`
+ * grants every type; `records.read:recordType:customer` grants only `customer`).
+ * The first match wins; callers use it both to gate a call and to attribute a
+ * granted call back to the declaration that allowed it (the SDK inspector, cli §4).
+ */
+export function grantingCapability(
+  declared: readonly Capability[],
+  required: RequiredCapability,
+): Capability | null {
+  for (const cap of declared) {
+    const parsed = parseCapability(formatCapability(cap));
+    if (parsed.ok && parsed.api === required.api && isPrefix(parsed.scopePath, required.scopePath)) {
+      return cap;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether the widget's `declared` capabilities grant `required` — i.e. some
+ * declared capability {@link grantingCapability | grants} it.
  */
 export function isGranted(declared: readonly Capability[], required: RequiredCapability): boolean {
-  return declared.some((cap) => {
-    const parsed = parseCapability(formatCapability(cap));
-    return parsed.ok && parsed.api === required.api && isPrefix(parsed.scopePath, required.scopePath);
-  });
+  return grantingCapability(declared, required) !== null;
 }
 
 /** Whether `prefix` is a (possibly equal) leading slice of `path`. */

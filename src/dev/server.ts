@@ -21,8 +21,15 @@ import { type IncomingMessage, type ServerResponse, createServer } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { formatCapability } from '@gridmason/protocol';
 import { ENDPOINTS } from './endpoints.js';
 import { renderHarness } from './harness.js';
+import {
+  InspectorLog,
+  type ObservationOutcome,
+  type RawObservation,
+  renderInspector,
+} from './inspector.js';
 import {
   type DevProject,
   declaredCapabilities,
@@ -30,7 +37,7 @@ import {
   loadFixtures,
   loadManifest,
 } from './project.js';
-import { type SdkCall, enforceAndForward } from './proxy.js';
+import { type ProxyOutcome, type SdkCall, enforceAndForward } from './proxy.js';
 
 /** What kind of edit a {@link DevServer.reload} announces to connected browsers. */
 export type ReloadCategory = 'source' | 'manifest' | 'fixtures' | 'context';
@@ -69,7 +76,14 @@ export interface DevServer {
 export function createDevServer(options: DevServerOptions): Promise<DevServer> {
   const host = options.host ?? '127.0.0.1';
   const sseClients = new Set<ServerResponse>();
+  const inspector = new InspectorLog();
   let generation = 1;
+
+  /** Push one enriched observation to every connected SSE client as an `inspect` frame. */
+  function broadcastInspect(observation: unknown): void {
+    const payload = JSON.stringify(observation);
+    for (const client of sseClients) client.write(`event: inspect\ndata: ${payload}\n\n`);
+  }
 
   const server = createServer((req, res) => {
     handle(req, res).catch((err: unknown) => {
@@ -92,6 +106,8 @@ export function createDevServer(options: DevServerOptions): Promise<DevServer> {
     if (pathname === ENDPOINTS.fixtures) return serveFixtures(res);
     if (pathname === ENDPOINTS.context) return serveContext(res);
     if (pathname === ENDPOINTS.events) return serveEvents(req, res);
+    if (pathname === ENDPOINTS.inspector) return serveInspector(res);
+    if (pathname === ENDPOINTS.inspect) return serveInspect(req, res);
     if (pathname === ENDPOINTS.sdk) return serveSdk(req, res);
     if (pathname.startsWith(ENDPOINTS.npm)) return serveNpm(pathname, res);
     return serveSource(pathname, res);
@@ -151,6 +167,38 @@ export function createDevServer(options: DevServerOptions): Promise<DevServer> {
     req.on('close', () => sseClients.delete(res));
   }
 
+  /** Serve the standalone SDK-inspector page for the current manifest tag + mode. */
+  async function serveInspector(res: ServerResponse): Promise<void> {
+    const state = await loadManifest(options.project);
+    sendHtml(
+      res,
+      200,
+      renderInspector({ tag: state.manifest?.tag ?? '(unknown widget)', mode: options.proxyUrl ? 'proxy' : 'fixture' }),
+    );
+  }
+
+  /**
+   * The inspector data channel. GET returns the current session — the live
+   * declared capabilities plus every call observed since the current mount. POST
+   * records one gated call the fixture harness saw the widget make, enriches it
+   * against the live manifest, and broadcasts it to the inspector over SSE.
+   */
+  async function serveInspect(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const state = await loadManifest(options.project);
+    if (req.method === 'GET') {
+      sendJson(res, 200, {
+        declared: declaredCapabilities(state).map(formatCapability),
+        calls: inspector.list(),
+      });
+      return;
+    }
+    if (req.method !== 'POST') return void sendJson(res, 405, { error: 'method not allowed' });
+    const raw = (await readJsonBody(req)) as RawObservation;
+    const observation = inspector.add(raw, declaredCapabilities(state));
+    broadcastInspect(observation);
+    sendJson(res, 200, { ok: true });
+  }
+
   async function serveSdk(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') return void sendJson(res, 405, { error: 'method not allowed' });
     if (!options.proxyUrl) {
@@ -161,6 +209,14 @@ export function createDevServer(options: DevServerOptions): Promise<DevServer> {
     const call = (await readJsonBody(req)) as SdkCall;
     const state = await loadManifest(options.project);
     const outcome = await enforceAndForward(call, declaredCapabilities(state), options.proxyUrl);
+    // A --proxy mount routes every SDK call through the server, so record it for
+    // the inspector here — the fixture recorder the harness reports from is only
+    // present in fixture mode.
+    const observation = inspector.add(
+      { method: call.method, outcome: proxyOutcomeTag(outcome), arg: call.args?.[0] },
+      declaredCapabilities(state),
+    );
+    broadcastInspect(observation);
     sendJson(res, 200, outcome);
   }
 
@@ -195,6 +251,10 @@ export function createDevServer(options: DevServerOptions): Promise<DevServer> {
         generation: () => generation,
         reload(category) {
           if (category === 'source' || category === 'manifest') generation += 1;
+          // Every reload re-mounts the widget on a fresh SDK, so the observed-call
+          // log starts over — the inspector reflects the current code, not a stale
+          // accumulation across edits (its `reload` SSE listener re-pulls the session).
+          inspector.clear();
           const payload = JSON.stringify({ category, generation });
           for (const client of sseClients) client.write(`event: reload\ndata: ${payload}\n\n`);
         },
@@ -206,6 +266,18 @@ export function createDevServer(options: DevServerOptions): Promise<DevServer> {
       });
     });
   });
+}
+
+/** Map a `--proxy` {@link ProxyOutcome} to the inspector's {@link ObservationOutcome} tag. */
+function proxyOutcomeTag(outcome: ProxyOutcome): ObservationOutcome {
+  switch (outcome.status) {
+    case 'denied':
+      return 'denied';
+    case 'error':
+      return 'proxy-error';
+    default:
+      return 'proxied';
+  }
 }
 
 /** The placeholder page shown when the manifest cannot name a tag + entry to mount. */
