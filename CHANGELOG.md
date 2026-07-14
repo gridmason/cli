@@ -1,5 +1,44 @@
 # @gridmason/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- 2c6f5c1: Add `gridmason login` / `gridmason whoami` — the keyless OIDC signing identity
+  (FR-10, SPEC §7/§8, issue #15). `login` establishes the OIDC identity that is the
+  real trust anchor for signing (registry §2) via the standard Sigstore
+  `IdentityProvider` surface (`@sigstore/sign`); `whoami` reports the established
+  issuer + subject. Keyless by default: no long-lived private key — and no token —
+  is written to disk; the session records only public OIDC claims, and `publish`
+  re-acquires a short-lived token and mints an ephemeral certificate at signing
+  time. Shared signing-identity plumbing lands in `src/publish/` (issuer +
+  `subjectClaims` are projected onto the protocol §4.2 `PublisherSignature` surface
+  `publish` consumes). Token acquisition supports an explicit token
+  (`--token` / `GRIDMASON_OIDC_TOKEN`) and the ambient CI context (`--ambient`); the
+  interactive browser flow is deferred until the registry OIDC issuer allowlist
+  lands. Bumps `@gridmason/protocol` to `^0.1.0`.
+- 5ebf396: Complete the `verify` command with the offline `.gmb` path (#16, second half):
+  `gridmason verify --offline <bundle.gmb>` verifies a self-contained bundle with
+  **no network** — the identical `verifyRelease` chain plus an archive-integrity
+  gate, delegated to `@gridmason/protocol@^0.2.0`'s `verifyOfflineBundle`. It reuses
+  the online path's seams (blind-root refusal via the shared trust-config loader,
+  SPEC §4.4; the shared verdict renderer), adds the two bundle-only reason classes
+  (`bundle-malformed`, `bundle-hash-tampered`) to the surfaced stable enum, and — on
+  a clean chain — enforces each packed file's bytes against the verified hash map
+  with `verifyChunk`, so a bundle that packs bytes not matching its signed hash is
+  caught at verify time. Bumps `@gridmason/protocol` to `^0.2.0` and adds
+  `docs/verify.md`. With this, issue #16 is fully implemented (online + offline).
+- fb87750: Add the `verify` command's online path (#16): `gridmason verify <artifact|url>`
+  resolves an artifact's release, envelope, trust-root document, and log entry, then
+  delegates the whole dual-signature + content-hash + transparency-log decision to
+  `@gridmason/protocol@^0.1.0`'s `verifyRelease` — the CLI holds no bespoke crypto.
+  Trust roots are pinned/config-supplied only (`--trust-config <path>` or
+  `GRIDMASON_TRUST_CONFIG`); with nothing pinned the command refuses to proceed
+  rather than trust a root fetched blind (SPEC §4.4). The library's stable verdict
+  enum is surfaced verbatim (never remapped); exit codes are `0` verified, `1`
+  refused, `2` no verdict reached. The `--offline` `.gmb` path stays deferred until
+  protocol P-E4 ships the bundle format, and reports not-yet-implemented.
+
 ## 0.1.1
 
 ### Patch Changes
