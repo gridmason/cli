@@ -1,0 +1,42 @@
+name: Release
+
+# Publishing runs ONLY from main. Integration (epic/**) and worker (issue/**)
+# branches carry [skip ci] and never publish. On push to main this either opens
+# a "Version Packages" PR (when unreleased changesets exist) or, once that PR is
+# merged and the version bump lands on main, publishes to npm.
+on:
+  push:
+    branches: [main]
+
+# One release run at a time so a version PR and a publish never race.
+concurrency: release-${{ github.ref }}
+
+permissions:
+  contents: write # let changesets/action open the version PR and push git tags
+  pull-requests: write # let changesets/action open/update the "Version Packages" PR
+  id-token: write # OIDC for npm Trusted Publishing + build provenance (no NPM_TOKEN)
+
+jobs:
+  release:
+    name: version or publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; Node 22 ships an older npm.
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run build
+      - name: Create Release PR or publish to npm
+        uses: changesets/action@v1
+        with:
+          version: npm run version
+          publish: npm run release
+        env:
+          # OIDC token exchange authenticates the publish — no NPM_TOKEN secret.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true

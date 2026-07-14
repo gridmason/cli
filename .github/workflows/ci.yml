@@ -1,0 +1,30 @@
+name: CI
+
+# Runs only on main so integration (epic/**) and worker (issue/**) pushes stay
+# quiet — those carry [skip ci] and open CI-free draft PRs into their epic
+# branch. CI runs once when the batch PR lands on main. GitHub Actions honors
+# [skip ci] natively, so a pushed head commit ending in [skip ci] is never built.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build + typecheck + test + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
