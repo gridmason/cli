@@ -102,7 +102,7 @@ describe('buildManifestStub', () => {
   it('seeds a sample context slot and a matching capability', () => {
     const manifest = buildManifestStub(baseAnswers);
     expect(manifest.requiresContext).toEqual({ primary: { recordType: 'example' } });
-    expect(manifest.capabilities).toEqual([{ api: 'records.read', scope: 'example' }]);
+    expect(manifest.capabilities).toEqual([{ api: 'records.read', scope: 'recordType:example' }]);
   });
 
   it('carries the kind through', () => {
@@ -140,7 +140,8 @@ describe('planScaffold', () => {
         '.github/workflows/ci.yml',
         '.gitignore',
         'README.md',
-        'fixtures/.gitkeep',
+        'fixtures/contexts/example-2.json',
+        'fixtures/default.json',
         'manifest.json',
         'package.json',
         'props.schema.json',

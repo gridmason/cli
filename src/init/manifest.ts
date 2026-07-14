@@ -99,7 +99,11 @@ export function buildManifestStub(answers: InitAnswers): Manifest {
     thumbnail: 'thumbnail.svg',
     size: { default: [4, 3] },
     requiresContext: { primary: { recordType: 'example' } },
-    capabilities: [{ api: 'records.read', scope: 'example' }],
+    // Scope is the SDK's records grammar `recordType:<type>` (SPEC §3.1,
+    // `records.read:recordType:customer`) — `min(user, widget)` enforcement in the
+    // fixture/host SDK denies a bare `example` scope, so the scaffold's own reads
+    // (and #8's seeded fixtures) would be denied without the `recordType:` segment.
+    capabilities: [{ api: 'records.read', scope: 'recordType:example' }],
     ...(template.sharedScope ? { sharedScope: template.sharedScope } : {}),
   };
 

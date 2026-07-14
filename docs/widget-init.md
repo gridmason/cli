@@ -44,21 +44,23 @@ For `gridmason widget init "Sales Chart" --publisher acme`, the project director
 | `thumbnail.svg` | A neutral thumbnail placeholder, so the manifest's `thumbnail` path is valid from the first lint. |
 | `src/<slug>.stories.js` | A framework-agnostic Storybook story stub that renders the custom element by tag. |
 | `.github/workflows/ci.yml` | CI that runs `gridmason lint` on every push/PR — fails the PR before a registry review ever sees it. |
-| `fixtures/` | Seeded sample data for `gridmason dev` (see below). |
+| `fixtures/` | Seeded sample data for `gridmason dev` — `default.json` plus a `contexts/` preset, derived from the manifest ([fixtures](./fixtures.md)). |
 | `package.json` | Project manifest with `dev`/`lint` scripts and the `@gridmason/sdk` + `@gridmason/cli` deps. |
 | `README.md`, `.gitignore` | Authoring readme and standard ignores. |
 
 ## Extension seams
 
-`init` owns orchestration and the non-framework-specific files; two seams are
-filled by sibling issues:
+`init` owns orchestration and the non-framework-specific files; the
+framework-specific bodies come from a sibling seam:
 
 - **Framework template bodies** (`src/templates/index.ts`, issue #7) — the
   `Template` registry maps each framework to its `entry`/ABI-skeleton files and
   its `sharedScope` defaults. Until #7 lands, every framework shares a minimal
   placeholder `entry` that registers the element.
-- **Fixture seeding** (`src/init/fixtures.ts`, issue #8) — `seedFixtures(ctx)`
-  emits `fixtures/` from the manifest (a sample record per `requiresContext`
-  recordType, a `net` stub per `net:<host>` capability, a default context
-  preset) so the first `gridmason dev` renders with data. Until #8 lands it seeds
-  only a keepfile.
+
+The **fixture seeding** seam (`src/init/fixtures.ts`) is filled: `seedFixtures(ctx)`
+derives `fixtures/` from the manifest — a sample record per `requiresContext`
+recordType, a `net` stub per `net:<host>` capability, a scripted emission per
+`events:<ns>` capability, and a default + named context preset — so the first
+`gridmason dev` renders with data. See [fixtures](./fixtures.md) for the layout
+and the full seed-from-manifest mapping.

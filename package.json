@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "@gridmason/protocol": "0.0.3",
-    "@gridmason/sdk": "0.0.1",
+    "@gridmason/sdk": "^0.2.0",
     "commander": "15.0.0"
   },
   "devDependencies": {

@@ -126,7 +126,7 @@ function packageJsonFile(manifest: Manifest, slug: string): GeneratedFile {
       lint: 'gridmason lint',
     },
     dependencies: {
-      '@gridmason/sdk': '^0.0.1',
+      '@gridmason/sdk': '^0.2.0',
     },
     devDependencies: {
       '@gridmason/cli': '^0.0.0',
