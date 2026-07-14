@@ -59,11 +59,13 @@ describe('unimplemented commands', () => {
   });
 
   it('emit a stable JSON object on stdout with --json', async () => {
-    const { code, out, err } = await drive(['lint', '--json']);
+    // `publish` stands in for a still-stubbed command here; `lint` is now
+    // implemented (its behavior is covered by lint.test.ts / checks.test.ts).
+    const { code, out, err } = await drive(['publish', '--json']);
     expect(code).toBe(0);
     expect(err).toBe('');
     const parsed = JSON.parse(out) as { command: string; status: string; message: string };
-    expect(parsed.command).toBe('lint');
+    expect(parsed.command).toBe('publish');
     expect(parsed.status).toBe('not-implemented');
     expect(typeof parsed.message).toBe('string');
   });
@@ -71,10 +73,10 @@ describe('unimplemented commands', () => {
 
 describe('global flags', () => {
   it('are accepted after the command name', async () => {
-    const { code, out } = await drive(['lint', '--registry', 'https://registry.example', '--json']);
+    const { code, out } = await drive(['publish', '--registry', 'https://registry.example', '--json']);
     expect(code).toBe(0);
     const parsed = JSON.parse(out) as { command: string };
-    expect(parsed.command).toBe('lint');
+    expect(parsed.command).toBe('publish');
   });
 
   it('--offline is a known flag on verify', async () => {

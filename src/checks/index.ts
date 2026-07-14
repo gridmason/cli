@@ -1,30 +1,32 @@
 /**
- * The shared review checks (SPEC §5, §8) — placeholder skeleton. The registry
- * service imports this module (`@gridmason/cli/checks`) so that `gridmason lint`
- * and the registry's automated review run the *identical* code path: local-green
- * predicts review-pass, by construction. The L-E2 epic (#11-#14) fills in the
- * manifest lint, SDK-adherence static analysis, and dependency-DAG checks.
+ * The shared review checks (SPEC §5, §8; FR-7, FR-8) — the public surface the
+ * registry service imports verbatim as a **plain library** (`@gridmason/cli/checks`)
+ * so `gridmason lint` and the registry's automated review run the *identical*
+ * code path: local-green predicts review-pass, by construction (SPEC §8, "one
+ * implementation, no divergence"). This module pulls in no CLI machinery
+ * (commander, the binary, the IO sink) — importing it costs a consumer nothing
+ * but the checks and `@gridmason/protocol` + `ajv`.
+ *
+ * The check-id scheme and the manifest-check rules are documented in
+ * `docs/checks.md`; the L-E2 epic (#11–#14) fills in the manifest lint (here),
+ * the SDK-adherence static analysis (#12), and the dependency-DAG check + the
+ * `--json` report / tier mapping (#13).
  */
-import type { Manifest } from '@gridmason/protocol';
-
-/** Everything a check needs to make a decision. Grows as checks land. */
-export interface CheckContext {
-  /** The parsed widget manifest under review (protocol §3.1). */
-  manifest: Manifest;
-  /** Target registry, when running a registry-aware check (`--registry`). */
-  registry?: string;
-}
-
-/** A single check outcome, mapped to a registry review tier as checks land. */
-export interface CheckResult {
-  /** Stable check id, echoed by registry review findings so the two align. */
-  id: string;
-  status: 'pass' | 'warn' | 'fail';
-  message: string;
-}
-
-/** A check: pure function from context to zero or more results. */
-export type Check = (ctx: CheckContext) => CheckResult[];
-
-/** The registered checks. Empty until the L-E2 epic populates it. */
-export const checks: readonly Check[] = [];
+export type { Check, CheckContext, CheckResult, CheckStatus, SourceFile } from './types.js';
+export { checks, runChecks, hasFailure } from './run.js';
+export {
+  manifestChecks,
+  manifestSchemaCheck,
+  manifestTagCheck,
+  manifestCapabilitiesCheck,
+} from './manifest.js';
+export { sdkChecks, sdkRawNetworkCheck, sdkTokenReachCheck, sdkObfuscationCheck } from './sdk.js';
+export { domChecks, domAbuseCheck } from './dom.js';
+export { dependencyChecks, dependencyDagCheck, findRequiresCycle } from './deps.js';
+export {
+  REVIEW_TIERS,
+  TIER_BY_GROUP,
+  tierForCheckId,
+  type ReviewTier,
+  type ReviewTierId,
+} from './tiers.js';

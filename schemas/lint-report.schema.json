@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gridmason.dev/schemas/lint-report.schema.json",
+  "title": "gridmason lint report",
+  "description": "The single JSON object `gridmason lint --json` prints on stdout (SPEC §5, FR-7). Either a run report (checks ran) or an error report (the manifest could not be loaded). This repo owns this contract; the CLI's output validates against it.",
+  "oneOf": [
+    { "$ref": "#/definitions/RunReport" },
+    { "$ref": "#/definitions/ErrorReport" }
+  ],
+  "definitions": {
+    "RunReport": {
+      "type": "object",
+      "description": "The report for a run that read the manifest and ran the checks.",
+      "properties": {
+        "command": { "const": "lint" },
+        "status": {
+          "enum": ["pass", "fail"],
+          "description": "`fail` iff any check result is `fail`; else `pass`. Mirrors the process exit code."
+        },
+        "results": {
+          "type": "array",
+          "description": "Every check finding, in check order — each tagged with the review tier it feeds.",
+          "items": { "$ref": "#/definitions/Result" }
+        },
+        "tiers": {
+          "type": "object",
+          "description": "The review tiers referenced by `results`, keyed by tier id — resolves each result's `tier` to its SLA.",
+          "additionalProperties": { "$ref": "#/definitions/Tier" }
+        }
+      },
+      "required": ["command", "status", "results", "tiers"],
+      "additionalProperties": false
+    },
+    "ErrorReport": {
+      "type": "object",
+      "description": "The report when the manifest could not be loaded — no checks ran.",
+      "properties": {
+        "command": { "const": "lint" },
+        "status": { "const": "error" },
+        "code": {
+          "enum": ["no-manifest", "invalid-json"],
+          "description": "Why the manifest could not be read; machine consumers switch on this."
+        },
+        "message": { "type": "string" }
+      },
+      "required": ["command", "status", "code", "message"],
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "description": "One check finding, echoing the check id and the review tier it feeds.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The stable dotted check id (`<group>.<slug>`, e.g. `manifest.schema`, `deps.acyclic`)."
+        },
+        "status": { "enum": ["pass", "warn", "fail"] },
+        "message": { "type": "string", "description": "Human-readable, specific to this finding." },
+        "hint": { "type": "string", "description": "How to fix this finding; present on most non-pass results." },
+        "tier": {
+          "type": "string",
+          "description": "The id of the review tier this check maps to; a key in the report's `tiers` catalog (registry §4.2)."
+        }
+      },
+      "required": ["id", "status", "message", "tier"],
+      "additionalProperties": false
+    },
+    "Tier": {
+      "type": "object",
+      "description": "A registry review tier (registry §4.1–§4.2): the stage a finding is reviewed under and, for a human tier, its flagship SLA.",
+      "properties": {
+        "id": { "type": "string", "description": "Stable tier id (`automated`, `T1`, `TF`)." },
+        "title": { "type": "string", "description": "Human label (`frontend remote`)." },
+        "sla": { "type": "string", "description": "Flagship review SLA (`5d`); absent for the synchronous automated stage." },
+        "reference": { "type": "string", "description": "Where the tier is defined (`registry §4.2`)." }
+      },
+      "required": ["id", "title", "reference"],
+      "additionalProperties": false
+    }
+  }
+}
