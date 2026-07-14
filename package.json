@@ -31,7 +31,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "schemas"
   ],
   "publishConfig": {
     "access": "public"

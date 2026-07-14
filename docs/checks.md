@@ -18,8 +18,8 @@ registered check, and reports:
 - **human** diagnostics on **stderr** — one line per finding (`✓`/`!`/`✗`), a fix
   hint under each failure, and a summary;
 - **`--json`** — a single report object on **stdout** and nothing else, for CI
-  gating. (The report shape is minimal in #11; the check-id → review-tier mapping
-  matures in #13.)
+  gating. It serializes every check result and maps each to its registry review
+  tier (see [The `--json` report](#the---json-report-and-review-tiers) below).
 
 The process **exit code is `0` if and only if no check failed** (a `warn` does not
 fail the run), so `publish` and CI fail closed. A missing or non-JSON
@@ -54,6 +54,7 @@ not a string — that is `manifest.schema`'s failure to report).
 | `sdk.raw-network` | sdk | The widget's source performs no **raw network I/O outside the SDK** — no global `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, or `navigator.sendBeacon`. All egress must go through the capability-scoped SDK handle so the host can gate and audit it. | a raw network primitive is called outside the SDK (each hit is a `fail`, located `file:line:col`). This is the check most likely to fail a naive widget. |
 | `sdk.token-reach` | sdk | The source does not reach **ambient credential/storage surfaces** the sandbox withholds — `document.cookie`, `localStorage`/`sessionStorage`, `indexedDB`, `window.name`. A widget receives scoped host data only through its handle. | `document.cookie` or Web Storage is read (`fail`); `indexedDB` / `window.name` are `warn` (ambient, sometimes benign). |
 | `sdk.obfuscation` | sdk | The source contains no **indirection that hides** network/DOM access from static reading — `eval`/`Function`, `atob`/`String.fromCharCode`/`unescape` decode chains, computed/string-built access on a global object, dynamic `import()` of a computed specifier, string-argument `setTimeout`/`setInterval`. | dynamic code execution (`eval`, `new Function`) is a `fail`; the decoding/computed-access/string-timer heuristics are `warn`. |
+| `deps.acyclic` | deps | The manifest's `requires` graph (`{ tag, range }` dependency-DAG edges, protocol §3.1) is **acyclic**. Local/offline, so it sees one manifest: the only cycle it can prove is a widget that requires its **own tag**. Transitive, cross-manifest cycles are the registry-validated `lint --registry` job (Phase B, #19). On failure the message prints the cycle path (`acme-chart → acme-chart`). | a required tag closes a cycle back to the widget's own tag. Absent/non-array `requires` and a non-string `tag` defer (those are `manifest.schema` / `manifest.tag`'s to report); malformed requirement entries are skipped, not double-reported. |
 | `dom.abuse` | dom | A frontend remote (registry §4.2, TF tier) keeps DOM access inside **its own subtree** — no document-wide queries, `document.body`/`head`/`documentElement`, document/window-level listeners or state (`title`/`write`), `window.open`, top-level navigation, or cross-frame reach (`top`/`parent`). | any document-/window-level reach, navigation, or cross-frame access is found. Every hit is a `warn` — surfaced for the TF-tier reviewer without failing the local gate on a heuristic alone. Element-scoped DOM (`document.createElement`, `element.addEventListener`, `customElements`) is **not** flagged. |
 
 ### Why the manifest lint is three checks, not one
@@ -105,6 +106,54 @@ complete. Every rule's bypasses are documented so the guarantee is not overstate
 Because they are heuristics, a hit is a prompt to look, not a proof of intent; a
 clean run is evidence, not a guarantee. The registry's review is the authority —
 `lint` exists to make its likely verdict visible early.
+
+## The `--json` report and review tiers
+
+`gridmason lint --json` prints a single report object on stdout. Its shape is a
+contract this repo owns (cli-v0 spec, Data model), pinned by the JSON Schema at
+[`schemas/lint-report.schema.json`](../schemas/lint-report.schema.json) and
+shipped in the npm package — a CI consumer can validate against it directly. Every
+object the command emits validates against that schema (checked in the test suite).
+
+A run report serializes **every** check result and tags each with the **registry
+review tier** its findings feed, so a CI consumer learns which review SLA the
+artifact will hit before it publishes (SPEC §5, FR-7):
+
+```jsonc
+{
+  "command": "lint",
+  "status": "pass",                       // "fail" iff any check failed; mirrors the exit code
+  "results": [
+    { "id": "manifest.schema", "status": "pass", "message": "…", "tier": "automated" },
+    { "id": "deps.acyclic",    "status": "pass", "message": "…", "tier": "automated" }
+  ],
+  "tiers": {                              // catalog resolving each result's `tier` id to its SLA
+    "automated": { "id": "automated", "title": "automated review", "reference": "registry §4.1" }
+  }
+}
+```
+
+When the manifest cannot be loaded, the **error** variant is emitted instead
+(`status: "error"`, a `code` of `no-manifest` / `invalid-json`, and a `message`) —
+also covered by the schema.
+
+### Review tiers
+
+Each check id maps to a registry review tier (registry §4.1–§4.2) by its `<group>`
+prefix. The mapping is data-driven (`src/checks/tiers.ts`), so a new check family
+maps with a one-line addition:
+
+| group | tier | tier meaning | flagship SLA |
+|---|---|---|---|
+| `manifest` | `automated` | the automated review stage every publish runs (registry §4.1) | synchronous at publish |
+| `deps` | `automated` | same automated stage — the dependency-DAG check (registry §4.1) | synchronous at publish |
+| `sdk` | `TF` | frontend-remote human review: SDK-adherence static analysis (registry §4.2) | 5d |
+| `dom` | `TF` | frontend-remote human review: DOM-abuse heuristics (registry §4.2) | 5d |
+
+The `T1` tier (declarative artifacts, no executable content — SLA 2d) exists in the
+registry's review model and is carried in the report's tier catalog for
+completeness, though no v0 check family targets it. An unmapped group falls back to
+`automated`, the floor every publish hits.
 
 ## Consuming the checks as a library (the registry path)
 

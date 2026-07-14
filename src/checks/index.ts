@@ -22,3 +22,11 @@ export {
 } from './manifest.js';
 export { sdkChecks, sdkRawNetworkCheck, sdkTokenReachCheck, sdkObfuscationCheck } from './sdk.js';
 export { domChecks, domAbuseCheck } from './dom.js';
+export { dependencyChecks, dependencyDagCheck, findRequiresCycle } from './deps.js';
+export {
+  REVIEW_TIERS,
+  TIER_BY_GROUP,
+  tierForCheckId,
+  type ReviewTier,
+  type ReviewTierId,
+} from './tiers.js';

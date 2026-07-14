@@ -6,15 +6,18 @@
  * module is the CLI-only glue that builds the {@link CheckContext} from disk and
  * shapes the output.
  *
- * The `--json` shape here is deliberately minimal — the full structured report
- * (check-id → review-tier mapping) matures in #13. What is stable is that a
- * machine consumer gets a single JSON object on stdout and nothing else, and the
- * process exit code is `0` iff no check failed (so `publish` and CI fail closed).
+ * The `--json` report serializes every check result and maps each to the registry
+ * review tier its findings feed, with a `tiers` catalog for the SLAs (SPEC §5,
+ * FR-7). Its shape is owned here and pinned by `schemas/lint-report.schema.json`
+ * ({@link ./report.js}); a machine consumer gets a single JSON object on stdout
+ * and nothing else, and the process exit code is `0` iff no check failed (so
+ * `publish` and CI fail closed).
  */
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { IO } from '../io.js';
 import { hasFailure, runChecks, type CheckContext, type CheckResult, type SourceFile } from '../checks/index.js';
+import { buildLintErrorReport, buildLintReport } from './report.js';
 
 /** The manifest file a widget project is anchored on (matches `dev`). */
 const MANIFEST_FILE = 'manifest.json';
@@ -112,7 +115,7 @@ function glyph(status: CheckResult['status']): string {
 /** Report that the manifest could not be loaded, honoring `--json`; returns exit 1. */
 function reportLoadError(code: LoadErrorCode, message: string, io: IO, json: boolean | undefined): number {
   if (json) {
-    io.out(`${JSON.stringify({ command: 'lint', status: 'error', code, message })}\n`);
+    io.out(`${JSON.stringify(buildLintErrorReport(code, message))}\n`);
   } else {
     io.err(`gridmason: ${message}\n`);
   }
@@ -155,7 +158,7 @@ export async function runLint(opts: LintOptions, io: IO): Promise<number> {
   const failed = hasFailure(results);
 
   if (opts.json) {
-    io.out(`${JSON.stringify({ command: 'lint', status: failed ? 'fail' : 'pass', results })}\n`);
+    io.out(`${JSON.stringify(buildLintReport(results, failed))}\n`);
   } else {
     for (const result of results) {
       io.err(`${glyph(result.status)} ${result.id}: ${result.message}\n`);

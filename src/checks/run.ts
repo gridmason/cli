@@ -8,18 +8,19 @@
  * {@link CheckContext} and returns the flat findings; the caller shapes the human
  * / `--json` report (the full structured report + tier mapping is #13).
  */
+import { dependencyDagCheck } from './deps.js';
 import { domChecks } from './dom.js';
 import { manifestChecks } from './manifest.js';
 import { sdkChecks } from './sdk.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 
 /**
- * Every review check, in report order. Phase A ships the manifest-lint checks;
- * #12 appends the SDK-adherence checks and #13 the dependency-DAG check. The
- * registry imports this array verbatim so its automated review and local lint run
- * the identical code (SPEC §8).
+ * Every review check, in report order (SPEC §5): the manifest-lint checks (#11),
+ * then the SDK-adherence checks (#12), the dependency-DAG check (#13), and the
+ * DOM-abuse check (#12). The registry imports this array verbatim so its automated
+ * review and local lint run the identical code (SPEC §8).
  */
-export const checks: readonly Check[] = [...manifestChecks, ...sdkChecks, ...domChecks];
+export const checks: readonly Check[] = [...manifestChecks, ...sdkChecks, dependencyDagCheck, ...domChecks];
 
 /**
  * Run `toRun` (every registered check by default) against `ctx` and collect their
