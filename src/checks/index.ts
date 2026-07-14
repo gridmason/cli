@@ -20,3 +20,11 @@ export {
   manifestTagCheck,
   manifestCapabilitiesCheck,
 } from './manifest.js';
+export { dependencyChecks, dependencyDagCheck, findRequiresCycle } from './deps.js';
+export {
+  REVIEW_TIERS,
+  TIER_BY_GROUP,
+  tierForCheckId,
+  type ReviewTier,
+  type ReviewTierId,
+} from './tiers.js';

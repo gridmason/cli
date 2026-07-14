@@ -19,6 +19,7 @@ import { FRAMEWORKS } from '../src/templates/index.js';
 import { planScaffold } from '../src/init/files.js';
 import {
   checks,
+  dependencyDagCheck,
   hasFailure,
   manifestCapabilitiesCheck,
   manifestChecks,
@@ -126,9 +127,14 @@ describe('manifest.capabilities check (driven by capabilityObjectVectors)', () =
 });
 
 describe('check registry + runner', () => {
-  it('registers exactly the manifest-lint checks in this phase', () => {
-    expect(checks).toEqual(manifestChecks);
-    expect(checks.map((c) => c.id)).toEqual(['manifest.schema', 'manifest.tag', 'manifest.capabilities']);
+  it('registers the manifest-lint checks and the dependency-DAG check in this phase', () => {
+    expect(checks).toEqual([...manifestChecks, dependencyDagCheck]);
+    expect(checks.map((c) => c.id)).toEqual([
+      'manifest.schema',
+      'manifest.tag',
+      'manifest.capabilities',
+      'deps.acyclic',
+    ]);
   });
 
   it('every check carries a stable id, title, and rationale (seeds the #14 reference)', () => {
