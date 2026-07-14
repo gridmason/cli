@@ -92,11 +92,10 @@ ${clientScript()}
 /**
  * The public `@gridmason/*` entry points the harness resolves to browser ESM,
  * mapped to their built file under the served `/@npm/` tree. The `@gridmason/sdk`
- * keys mirror that package's own export map (`@gridmason/sdk@0.2.0`) so a
- * scaffolded `entry` resolves whichever helpers it imports — the vanilla template
- * pulls the shared core (`@gridmason/sdk`) and `@gridmason/sdk/noop`, the fixture
- * harness pulls `@gridmason/sdk/fixture`, and the React/Vue templates their
- * framework helper. (React/Vue additionally import their framework by bare
+ * keys mirror that package's own export map (`@gridmason/sdk@0.3.0`) so a
+ * scaffolded `entry` resolves whichever helpers it imports — every template pulls
+ * its framework adapter (`@gridmason/sdk/{vanilla,react,vue}`) and `@gridmason/sdk/noop`,
+ * and the fixture harness pulls `@gridmason/sdk/fixture`. (React/Vue additionally import their framework by bare
  * specifier from the host's shared scope, which the standalone harness does not
  * supply — those entries mount through the dashboard sideload; see the module doc.)
  */

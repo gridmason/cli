@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "@gridmason/protocol": "^0.0.4",
-    "@gridmason/sdk": "^0.2.0",
+    "@gridmason/sdk": "^0.3.0",
     "ajv": "8.17.1",
     "chokidar": "4.0.3",
     "commander": "15.0.0"
