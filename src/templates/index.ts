@@ -6,12 +6,16 @@
  * **React**, and **Vue**. Framework choice also sets the manifest `sharedScope`
  * defaults (the import-map ranges the host must satisfy).
  *
- * This module is the seam the L-E1 templates issue (#7) fills: the registry and
- * the `Template` shape are defined here, and `widget init` (#6) drives them, but
- * the real per-framework bodies land in #7. Until then every framework shares a
- * minimal placeholder `entry` so the scaffold is exercisable end to end.
+ * The registry and the `Template` shape live here; `widget init` (#6) drives them.
+ * The per-framework bodies live in their own modules (`./vanilla`, `./react`,
+ * `./vue`), all speaking the shared ABI in `./abi`. Every emitted `entry` is a
+ * plain ES module that registers its custom element and loads in a bare
+ * import-map harness with no bundler (`docs/templates.md`).
  */
 import type { Manifest } from '@gridmason/protocol';
+import { reactFiles } from './react.js';
+import { vanillaFiles } from './vanilla.js';
+import { vueFiles } from './vue.js';
 
 /** The starter frameworks `widget init` offers (SPEC §3). */
 export type Framework = 'vanilla' | 'react' | 'vue';
@@ -51,46 +55,12 @@ export interface Template {
    * fully self-contained module graph (the vanilla default).
    */
   sharedScope?: Record<string, string>;
-  /**
-   * The framework-specific files: the ABI custom-element skeleton + `entry`.
-   * #7 replaces the placeholder bodies with the real per-framework skeletons.
-   */
+  /** The framework-specific files: the ABI custom-element skeleton + `entry`. */
   files(ctx: TemplateContext): GeneratedFile[];
 }
 
-/** Where every template writes its entry until #7 gives each its own layout. */
+/** The ES-module `entry` every template registers its custom element from. */
 const ENTRY_PATH = 'src/entry.js';
-
-/**
- * A minimal, valid ES-module `entry` that registers the custom element — the
- * placeholder body shared by all frameworks until #7 writes the real ABI
- * skeletons. It defines the element so the scaffold's shapes (a registered tag,
- * a plain ES module at `entry`) hold before the framework bodies exist.
- */
-function placeholderEntry(tag: string): string {
-  return `// Scaffold placeholder entry — the real ABI skeleton lands in issue #7.
-//
-// The shipped template will implement the widget ABI (core §4): read
-// context/settings/instance-id/edit-mode attributes, emit CustomEvents, and
-// obtain the host handle through @gridmason/sdk helpers. For now this registers
-// a minimal element so the project scaffolds, serves, and lints out of the box.
-
-class GridmasonWidgetElement extends HTMLElement {
-  connectedCallback() {
-    this.textContent = '${tag}: scaffold placeholder — implement the ABI skeleton (issue #7).';
-  }
-}
-
-if (!customElements.get('${tag}')) {
-  customElements.define('${tag}', GridmasonWidgetElement);
-}
-`;
-}
-
-/** The placeholder `files()` every framework shares until #7 lands. */
-function placeholderFiles(ctx: TemplateContext): GeneratedFile[] {
-  return [{ path: ENTRY_PATH, contents: placeholderEntry(ctx.manifest.tag) }];
-}
 
 /** The registered templates, keyed by framework. */
 export const templates: Record<Framework, Template> = {
@@ -98,21 +68,21 @@ export const templates: Record<Framework, Template> = {
     framework: 'vanilla',
     description: 'Vanilla — no framework, bundler-free reference (GW-D22)',
     entryPath: ENTRY_PATH,
-    files: placeholderFiles,
+    files: vanillaFiles,
   },
   react: {
     framework: 'react',
     description: 'React',
     entryPath: ENTRY_PATH,
     sharedScope: { react: '^18.0.0', 'react-dom': '^18.0.0' },
-    files: placeholderFiles,
+    files: reactFiles,
   },
   vue: {
     framework: 'vue',
     description: 'Vue 3',
     entryPath: ENTRY_PATH,
     sharedScope: { vue: '^3.0.0' },
-    files: placeholderFiles,
+    files: vueFiles,
   },
 };
 
