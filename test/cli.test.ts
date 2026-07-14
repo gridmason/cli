@@ -52,7 +52,7 @@ describe('--version', () => {
 
 describe('unimplemented commands', () => {
   it('print a not-yet-implemented notice on stderr', async () => {
-    const { code, out, err } = await drive(['dev']);
+    const { code, out, err } = await drive(['whoami']);
     expect(code).toBe(0);
     expect(err).toContain('not yet implemented');
     expect(out).toBe('');
@@ -96,6 +96,17 @@ describe('nested command namespaces', () => {
     expect(parsed.command).toBe('widget init');
     expect(parsed.status).toBe('error');
     expect(parsed.code).toBe('missing-answer');
+  });
+
+  it('routes `dev` to the real implementation, which fails fast outside a widget project', async () => {
+    // The CLI package root has no manifest.json, so the wired `dev` command
+    // reports its own no-manifest error and exits 1 rather than a stub notice.
+    const { code, out } = await drive(['dev', '--json']);
+    expect(code).toBe(1);
+    const parsed = JSON.parse(out) as { command: string; status: string; code: string };
+    expect(parsed.command).toBe('dev');
+    expect(parsed.status).toBe('error');
+    expect(parsed.code).toBe('no-manifest');
   });
 
   it('shows namespace help for bare `widget`', async () => {
