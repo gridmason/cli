@@ -1,6 +1,6 @@
 {
   "name": "@gridmason/cli",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "The gridmason binary: the widget-author devkit (scaffold -> develop -> lint) and the publish path into a Gridmason Registry.",
   "license": "AGPL-3.0-only",
   "repository": {
