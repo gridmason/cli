@@ -4,9 +4,10 @@
 widget project locally, so local-green predicts review-pass (SPEC §5, §8). The
 checks live in one module — `src/checks`, published at `@gridmason/cli/checks` —
 that the registry service imports **verbatim**: one implementation, no divergence
-(FR-8). This page is the check-id reference. The manifest lint lands with #11;
-SDK-adherence (#12), the dependency-DAG check, and the full `--json` tier mapping
-(#13) extend it, each adding its ids to the table below.
+(FR-8). This page is the **complete check-id reference**: for every id a widget
+author can hit, it says what the check means, which registry review tier it
+feeds, and how to fix a finding — plus the honest bypass notes for the heuristic
+`sdk.*` / `dom.*` checks. Jump to a specific id from the [table below](#checks).
 
 ```bash
 gridmason lint [path] [--json] [--registry <url>]
@@ -46,16 +47,134 @@ not a string — that is `manifest.schema`'s failure to report).
 
 ## Checks
 
-| id | group | what it checks | fails when |
-|---|---|---|---|
-| `manifest.schema` | manifest | The manifest is valid against the authoritative `@gridmason/protocol` manifest JSON Schema (protocol §3.1): required fields, the `formatVersion` / `version` patterns, the `kind` enum, the `size` / context / `capabilities` / `requires` **shapes**, and `additionalProperties: false`. | a required field is missing, a pattern/enum is violated, a nested shape is wrong, or an unknown property is present. |
-| `manifest.tag` | manifest | The `tag` (the widget's custom-element name) is lowercase, contains a hyphen, uses only `[a-z0-9-]` starting with a letter, and is **prefixed with `<publisher>-`** — via the protocol's `lintTag`. | any tag rule is broken; the publisher-prefix rule is the one the JSON Schema cannot express, enforced here. |
-| `manifest.capabilities` | manifest | Each declared capability's colon-delimited **scope grammar** is well-formed — via the protocol's `validateCapability`. | a scope segment is empty (e.g. `net:`, `records.read:a::b`). The api enum and the array shape are `manifest.schema`'s job, so an unknown api is reported there, not double-reported here. |
-| `sdk.raw-network` | sdk | The widget's source performs no **raw network I/O outside the SDK** — no global `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, or `navigator.sendBeacon`. All egress must go through the capability-scoped SDK handle so the host can gate and audit it. | a raw network primitive is called outside the SDK (each hit is a `fail`, located `file:line:col`). This is the check most likely to fail a naive widget. |
-| `sdk.token-reach` | sdk | The source does not reach **ambient credential/storage surfaces** the sandbox withholds — `document.cookie`, `localStorage`/`sessionStorage`, `indexedDB`, `window.name`. A widget receives scoped host data only through its handle. | `document.cookie` or Web Storage is read (`fail`); `indexedDB` / `window.name` are `warn` (ambient, sometimes benign). |
-| `sdk.obfuscation` | sdk | The source contains no **indirection that hides** network/DOM access from static reading — `eval`/`Function`, `atob`/`String.fromCharCode`/`unescape` decode chains, computed/string-built access on a global object, dynamic `import()` of a computed specifier, string-argument `setTimeout`/`setInterval`. | dynamic code execution (`eval`, `new Function`) is a `fail`; the decoding/computed-access/string-timer heuristics are `warn`. |
-| `deps.acyclic` | deps | The manifest's `requires` graph (`{ tag, range }` dependency-DAG edges, protocol §3.1) is **acyclic**. Local/offline, so it sees one manifest: the only cycle it can prove is a widget that requires its **own tag**. Transitive, cross-manifest cycles are the registry-validated `lint --registry` job (Phase B, #19). On failure the message prints the cycle path (`acme-chart → acme-chart`). | a required tag closes a cycle back to the widget's own tag. Absent/non-array `requires` and a non-string `tag` defer (those are `manifest.schema` / `manifest.tag`'s to report); malformed requirement entries are skipped, not double-reported. |
-| `dom.abuse` | dom | A frontend remote (registry §4.2, TF tier) keeps DOM access inside **its own subtree** — no document-wide queries, `document.body`/`head`/`documentElement`, document/window-level listeners or state (`title`/`write`), `window.open`, top-level navigation, or cross-frame reach (`top`/`parent`). | any document-/window-level reach, navigation, or cross-frame access is found. Every hit is a `warn` — surfaced for the TF-tier reviewer without failing the local gate on a heuristic alone. Element-scoped DOM (`document.createElement`, `element.addEventListener`, `customElements`) is **not** flagged. |
+The table indexes every id; the reference entries below give each one's
+rationale, the review tier it feeds, its severity, and the **fix hint** the tool
+prints under a failure. The `sdk.*` / `dom.*` entries are heuristics — read
+[their known bypasses](#static-analysis-is-heuristics-only--its-known-bypasses)
+before trusting a clean run.
+
+| id | group | tier | severity | one-line |
+|---|---|---|---|---|
+| [`manifest.schema`](#manifestschema) | manifest | automated | fail | manifest conforms to the protocol JSON Schema |
+| [`manifest.tag`](#manifesttag) | manifest | automated | fail | the `tag` is well-formed and publisher-prefixed |
+| [`manifest.capabilities`](#manifestcapabilities) | manifest | automated | fail | each capability scope grammar is well-formed |
+| [`sdk.raw-network`](#sdkraw-network) | sdk | TF | fail | no raw network I/O outside the SDK |
+| [`sdk.token-reach`](#sdktoken-reach) | sdk | TF | fail / warn | no reach to ambient credential/storage surfaces |
+| [`sdk.obfuscation`](#sdkobfuscation) | sdk | TF | fail / warn | no indirection that hides network/DOM access |
+| [`deps.acyclic`](#depsacyclic) | deps | automated | fail | the `requires` graph is acyclic |
+| [`dom.abuse`](#domabuse) | dom | TF | warn | a frontend remote stays inside its own subtree |
+
+Tier ⇒ review SLA is resolved in [Review tiers](#review-tiers): `automated` runs
+synchronously at publish; `TF` is the 5-day frontend-remote human review.
+
+### `manifest.schema`
+
+- **Group / tier / severity:** manifest · automated · **fail**.
+- **Checks:** the manifest is valid against the authoritative
+  `@gridmason/protocol` manifest JSON Schema (protocol §3.1): required fields, the
+  `formatVersion` / `version` patterns, the `kind` enum, the `size` / context /
+  `capabilities` / `requires` **shapes**, and `additionalProperties: false`.
+- **Fails when:** a required field is missing, a pattern/enum is violated, a
+  nested shape is wrong, or an unknown property is present.
+- **Fix:** align `manifest.json` with the manifest schema (protocol §3.1) — the
+  failure line names the offending JSON path.
+
+### `manifest.tag`
+
+- **Group / tier / severity:** manifest · automated · **fail**.
+- **Checks:** the `tag` (the widget's custom-element name) is lowercase, contains
+  a hyphen, uses only `[a-z0-9-]` starting with a letter, and is **prefixed with
+  `<publisher>-`** — via the protocol's `lintTag`. The publisher-prefix relation
+  is the one rule the JSON Schema cannot express, so it is enforced here.
+- **Fails when:** any tag rule is broken. Defers (emits nothing) when `tag` is not
+  a string — that is `manifest.schema`'s failure to report.
+- **Fix:** prefix the tag with `"<publisher>-"` so it matches the manifest
+  `publisher`; keep it lowercase, hyphenated, and `[a-z0-9-]` starting with a
+  letter. The hint is tailored to the specific violation the protocol reports.
+
+### `manifest.capabilities`
+
+- **Group / tier / severity:** manifest · automated · **fail**.
+- **Checks:** each declared capability's colon-delimited **scope grammar** is
+  well-formed — via the protocol's `validateCapability`.
+- **Fails when:** a scope segment is empty (e.g. `net:`, `records.read:a::b`). The
+  api enum and the array shape are `manifest.schema`'s job, so an unknown api is
+  reported there, not double-reported here.
+- **Fix:** give every colon-delimited scope segment a non-empty value.
+
+### `sdk.raw-network`
+
+- **Group / tier / severity:** sdk · TF · **fail** (each hit, located
+  `file:line:col`). This is the check most likely to fail a naive widget —
+  surfacing it locally is the point.
+- **Checks:** the widget's source performs no **raw network I/O outside the
+  SDK** — no global `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, or
+  `navigator.sendBeacon`. All egress must go through the capability-scoped SDK
+  handle so the host can gate and audit it.
+- **Fails when:** a raw network primitive is called outside the SDK.
+- **Fix:** do network I/O through the capability-scoped SDK handle (declare a
+  `net:<host>` capability); the registry rejects raw network access outside the
+  SDK.
+
+### `sdk.token-reach`
+
+- **Group / tier / severity:** sdk · TF · **fail** for `document.cookie` and Web
+  Storage; **warn** for `indexedDB` / `window.name` (ambient, sometimes benign).
+- **Checks:** the source does not reach **ambient credential/storage surfaces**
+  the sandbox withholds — `document.cookie`, `localStorage` / `sessionStorage`,
+  `indexedDB`, `window.name`. A widget receives scoped host data only through its
+  handle.
+- **Fails when:** `document.cookie` or Web Storage is read.
+- **Fix:** a widget receives host data only through its SDK handle; reading
+  ambient browser credential/storage surfaces (cookies, Web Storage, `indexedDB`)
+  is outside the sandbox and fails review.
+
+### `sdk.obfuscation`
+
+- **Group / tier / severity:** sdk · TF · **fail** for dynamic code execution
+  (`eval`, `new Function`); **warn** for the decode-chain / computed-access /
+  string-timer heuristics.
+- **Checks:** the source contains no **indirection that hides** network/DOM access
+  from static reading — `eval` / `Function`, `atob` / `String.fromCharCode` /
+  `unescape` decode chains, computed/string-built access on a global object,
+  dynamic `import()` of a computed specifier, string-argument `setTimeout` /
+  `setInterval`.
+- **Fails when:** dynamic code execution is found; the other patterns warn.
+- **Fix:** remove the dynamic-code / decoding indirection so the checks (and a
+  human reviewer) can read what the widget does; obfuscation that hides network
+  or DOM access is a review rejection.
+
+### `deps.acyclic`
+
+- **Group / tier / severity:** deps · automated · **fail**.
+- **Checks:** the manifest's `requires` graph (`{ tag, range }` dependency-DAG
+  edges, protocol §3.1) is **acyclic**. Local/offline, so it sees one manifest:
+  the only cycle it can prove is a widget that requires its **own tag**.
+  Transitive, cross-manifest cycles are the registry-validated `lint --registry`
+  job (Phase B, #19). On failure the message prints the cycle path
+  (`acme-chart → acme-chart`).
+- **Fails when:** a required tag closes a cycle back to the widget's own tag.
+  Absent/non-array `requires` and a non-string `tag` defer (those are
+  `manifest.schema` / `manifest.tag`'s to report); malformed requirement entries
+  are skipped, not double-reported.
+- **Fix:** break the cycle — a widget must not (transitively) require itself.
+
+### `dom.abuse`
+
+- **Group / tier / severity:** dom · TF · **warn** (every hit). Advisory: it
+  surfaces a reach for the TF-tier reviewer without failing the local gate on a
+  heuristic alone.
+- **Checks:** a frontend remote (registry §4.2, TF tier) keeps DOM access inside
+  **its own subtree** — no document-wide queries, `document.body` / `head` /
+  `documentElement`, document/window-level listeners or state (`title` / `write`),
+  `window.open`, top-level navigation, or cross-frame reach (`top` / `parent`).
+  Element-scoped DOM (`document.createElement`, `element.addEventListener`,
+  `customElements`) is **not** flagged.
+- **Fails when:** never fails the gate — every document-/window-level reach,
+  navigation, or cross-frame access is a `warn`.
+- **Fix:** keep DOM access inside the widget's own element/shadow subtree;
+  document- or window-level reach, top navigation, and cross-frame access are
+  reviewed under the frontend (TF) tier.
 
 ### Why the manifest lint is three checks, not one
 

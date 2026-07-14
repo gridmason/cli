@@ -28,3 +28,20 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+
+  e2e:
+    name: e2e (scaffold -> lint, all templates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Drives the built binary end to end — `widget init` each template then
+      # `gridmason lint` — so a regression in any check (or a template drifting
+      # into tripping one) fails the build. The suite builds the binary in its
+      # globalSetup; `npm run build` here surfaces a build break as its own step.
+      - run: npm run build
+      - run: npm run test:e2e
