@@ -126,9 +126,22 @@ describe('manifest.capabilities check (driven by capabilityObjectVectors)', () =
 });
 
 describe('check registry + runner', () => {
-  it('registers exactly the manifest-lint checks in this phase', () => {
-    expect(checks).toEqual(manifestChecks);
-    expect(checks.map((c) => c.id)).toEqual(['manifest.schema', 'manifest.tag', 'manifest.capabilities']);
+  it('keeps the manifest-lint checks first and registers the L-E2 static-analysis checks', () => {
+    // The manifest lint (#11) leads the report; #12 appends the SDK-adherence and
+    // DOM-abuse checks (and #13 the dependency-DAG check) — assert inclusion so the
+    // parallel additions do not fight over one exact-array expectation.
+    expect(checks.slice(0, manifestChecks.length)).toEqual(manifestChecks);
+    expect(checks.map((c) => c.id)).toEqual(
+      expect.arrayContaining([
+        'manifest.schema',
+        'manifest.tag',
+        'manifest.capabilities',
+        'sdk.raw-network',
+        'sdk.token-reach',
+        'sdk.obfuscation',
+        'dom.abuse',
+      ]),
+    );
   });
 
   it('every check carries a stable id, title, and rationale (seeds the #14 reference)', () => {

@@ -8,7 +8,9 @@
  * {@link CheckContext} and returns the flat findings; the caller shapes the human
  * / `--json` report (the full structured report + tier mapping is #13).
  */
+import { domChecks } from './dom.js';
 import { manifestChecks } from './manifest.js';
+import { sdkChecks } from './sdk.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 
 /**
@@ -17,7 +19,7 @@ import type { Check, CheckContext, CheckResult } from './types.js';
  * registry imports this array verbatim so its automated review and local lint run
  * the identical code (SPEC §8).
  */
-export const checks: readonly Check[] = [...manifestChecks];
+export const checks: readonly Check[] = [...manifestChecks, ...sdkChecks, ...domChecks];
 
 /**
  * Run `toRun` (every registered check by default) against `ctx` and collect their

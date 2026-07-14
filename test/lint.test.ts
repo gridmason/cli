@@ -57,7 +57,19 @@ describe('runLint on a fresh scaffold', () => {
     const report = JSON.parse(cap.out()) as { command: string; status: string; results: { id: string }[] };
     expect(report.command).toBe('lint');
     expect(report.status).toBe('pass');
-    expect(report.results.map((r) => r.id)).toEqual(['manifest.schema', 'manifest.tag', 'manifest.capabilities']);
+    // Manifest lint (#11) plus the #12 static-analysis checks, all passing on a
+    // fresh scaffold — inclusion, so #13's added check does not break this.
+    expect(report.results.map((r) => r.id)).toEqual(
+      expect.arrayContaining([
+        'manifest.schema',
+        'manifest.tag',
+        'manifest.capabilities',
+        'sdk.raw-network',
+        'sdk.token-reach',
+        'sdk.obfuscation',
+        'dom.abuse',
+      ]),
+    );
     expect(cap.err()).toBe(''); // diagnostics stay off stdout's channel
   });
 
@@ -89,6 +101,31 @@ describe('runLint on a broken manifest', () => {
     const report = JSON.parse(cap.out()) as { status: string; results: { id: string; status: string }[] };
     expect(report.status).toBe('fail');
     expect(report.results.some((r) => r.id === 'manifest.tag' && r.status === 'fail')).toBe(true);
+  });
+});
+
+describe('runLint runs the #12 static analysis over the project source', () => {
+  it('fails a widget whose entry does raw network I/O (sdk.raw-network)', async () => {
+    // Plant a raw fetch in the scaffold's entry; the manifest stays valid, so the
+    // failure must come from the source-analysis check reading src/ off disk.
+    await writeFile(path.join(root, 'src', 'entry.js'), "export function boot() {\n  return fetch('/exfiltrate');\n}\n");
+    const cap = capture();
+    const code = await runLint({ cwd: root, json: true }, cap.io);
+    expect(code).toBe(1);
+    const report = JSON.parse(cap.out()) as { status: string; results: { id: string; status: string; message: string }[] };
+    expect(report.status).toBe('fail');
+    const net = report.results.find((r) => r.id === 'sdk.raw-network' && r.status === 'fail');
+    expect(net, JSON.stringify(report.results)).toBeDefined();
+    expect(net?.message).toContain('src/entry.js');
+  });
+
+  it('surfaces DOM abuse as a warn without failing the run', async () => {
+    await writeFile(path.join(root, 'src', 'entry.js'), "export function boot() {\n  document.body.appendChild(document.createElement('div'));\n}\n");
+    const cap = capture();
+    const code = await runLint({ cwd: root, json: true }, cap.io);
+    expect(code).toBe(0); // a warn does not fail the gate
+    const report = JSON.parse(cap.out()) as { status: string; results: { id: string; status: string }[] };
+    expect(report.results.some((r) => r.id === 'dom.abuse' && r.status === 'warn')).toBe(true);
   });
 });
 

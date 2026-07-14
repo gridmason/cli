@@ -18,6 +18,20 @@
 export type CheckStatus = 'pass' | 'warn' | 'fail';
 
 /**
+ * One of the widget's own source files, the input to the static-analysis checks
+ * (#12: SDK-adherence, DOM-abuse). Built by the caller — the CLI reads them off
+ * disk (`gridmason lint`), the registry from the uploaded artifact — never by a
+ * check. `contents` is the raw source text; `path` is project-relative and
+ * forward-slashed so a finding's location is portable (`src/entry.js:12:5`).
+ */
+export interface SourceFile {
+  /** Project-relative, forward-slashed path (e.g. `src/entry.js`). */
+  readonly path: string;
+  /** The full, untransformed source text. */
+  readonly contents: string;
+}
+
+/**
  * Everything a check reads to make its decision. Built by the caller (the CLI or
  * the registry), never by a check. Grows by *optional* fields as later checks
  * need more input (e.g. #12's source files); existing checks ignore what they do
@@ -37,6 +51,15 @@ export interface CheckContext {
    * (Phase B) read it.
    */
   readonly registry?: string;
+  /**
+   * The widget's own source files, for the static-analysis checks (#12:
+   * SDK-adherence, DOM-abuse). Absent for a manifest-only context (e.g. the
+   * registry running only the manifest lint); a source check with nothing to
+   * read emits **no** result — its subject is absent — exactly as a manifest
+   * check defers when its field is missing. Optional, so it never breaks an
+   * existing manifest-only consumer.
+   */
+  readonly sourceFiles?: readonly SourceFile[];
 }
 
 /**
