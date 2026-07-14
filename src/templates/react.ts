@@ -6,31 +6,45 @@
  * any ESM-emitting bundler produces this same plain-ESM entry). `react` and
  * `react-dom` are declared in the manifest `sharedScope`, so the host satisfies
  * them from its import map rather than the widget bundling its own copy.
+ *
+ * The component consumes the real `@gridmason/sdk/react` reference adapter —
+ * `useRecord` (the primary context record) and `useSettings` — over the
+ * capability-scoped handle. The element wires the host handle from `.sdk`,
+ * falling back to `createNoopSDK` so the scaffold renders on first run (SPEC §3).
  */
-import { READY_EVENT, abiRuntimeSource, observedAttributesLiteral } from './abi.js';
+import { READY_EVENT, abiRuntimeSource, firstContextSlot, observedAttributesLiteral } from './abi.js';
 import type { GeneratedFile, TemplateContext } from './index.js';
 
 /** Emit the React template's files: the ABI element `entry` plus the component. */
 export function reactFiles(ctx: TemplateContext): GeneratedFile[] {
   const { manifest, className } = ctx;
   const tag = manifest.tag;
+  const slot = firstContextSlot(manifest);
 
   const app = `import { createElement as h } from 'react';
+import { useRecord, useSettings } from '@gridmason/sdk/react';
 
 // The widget's React component. Plain ESM (no JSX) so the entry loads with no
 // build step; adopt JSX + your bundler when you want richer authoring. Data
-// access wraps the host-provided \`sdk\` handle with the @gridmason/sdk React
-// helpers, e.g.:  import { useRecord, useSettings, emit } from '@gridmason/sdk/react';
-export function App({ context, settings, instanceId, editMode, sdk }) {
+// access uses the @gridmason/sdk React reference hooks over the host handle —
+// every hook bottoms out in an SDK method, so the widget stays auditable.
+export function App({ sdk }) {
+  // The primary context record (manifest \`requiresContext.${slot}\`); the hook is
+  // called unconditionally and returns an idle result when the slot is absent.
+  const { data, loading, error, status } = useRecord(sdk, sdk.context['${slot}']);
+  const [settings] = useSettings(sdk);
+
+  const title = settings.title ? String(settings.title) : '${manifest.name}';
+  let detail;
+  if (loading) detail = 'Loading the primary record…';
+  else if (error) detail = 'Could not read the primary record.';
+  else detail = 'Primary record (${slot}): ' + status + '.';
+
   return h(
     'section',
     { className: 'gm-widget' },
-    h('h1', null, '${manifest.name}'),
-    h(
-      'p',
-      null,
-      sdk ? 'Connected to the host SDK.' : 'No host SDK yet — rendering from attributes.',
-    ),
+    h('h1', null, title),
+    h('p', null, detail),
   );
 }
 `;
@@ -42,6 +56,7 @@ export function App({ context, settings, instanceId, editMode, sdk }) {
 // CustomEvents out, the capability-scoped SDK handle read from \`.sdk\`.
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { createNoopSDK } from '@gridmason/sdk/noop';
 import { App } from './app.js';
 
 ${abiRuntimeSource()}
@@ -64,7 +79,7 @@ class ${className}Element extends HTMLElement {
   }
 
   get sdk() {
-    return this._sdk;
+    return this._sdk ?? this._ensureSdk();
   }
 
   connectedCallback() {
@@ -86,10 +101,22 @@ class ${className}Element extends HTMLElement {
     this._render();
   }
 
+  // Fall back to the dev no-op handle until the host wires a real one, so the
+  // widget renders on first run (SPEC §3). The author's host replaces this.
+  _ensureSdk() {
+    if (this._sdk) return this._sdk;
+    const state = readHostState(this);
+    const opts = {};
+    if (state.instanceId !== undefined) opts.instanceId = state.instanceId;
+    if (state.context !== undefined) opts.context = state.context;
+    if (state.settings !== undefined) opts.settings = state.settings;
+    this._sdk = createNoopSDK(opts);
+    return this._sdk;
+  }
+
   _render() {
     if (!this._root) return;
-    const state = readHostState(this);
-    this._root.render(createElement(App, { ...state, sdk: this._sdk }));
+    this._root.render(createElement(App, { sdk: this._ensureSdk() }));
   }
 }
 
