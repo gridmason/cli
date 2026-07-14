@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import type { IO } from '../io.js';
 import { ExitCodeError } from '../exit.js';
 import { runVerify, runVerifyOffline } from '../verify/index.js';
+import { fetchTextCapped } from '../net.js';
 import { addGlobalOptions, type GlobalOptions } from './global-options.js';
 
 interface VerifyOptions extends GlobalOptions {
@@ -54,13 +55,7 @@ export function buildVerify(io: IO): Command {
         )
       : await runVerify(
           {
-            fetchText: async (url) => {
-              const response = await fetch(url);
-              if (!response.ok) {
-                throw new Error(`HTTP ${response.status} ${response.statusText}`);
-              }
-              return response.text();
-            },
+            fetchText: (url) => fetchTextCapped(url),
             readFile: (path) => readFile(path, 'utf8'),
             env: (name) => process.env[name],
             now: () => Date.now(),

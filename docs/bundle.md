@@ -71,7 +71,10 @@ registry-authoritative categorization slots in without touching the verifier.
    classify the entry module).
 2. **Load the signed release** from `--release` — a local path or an `http(s)://`
    registry URL. This is the same `{ release, envelope, trustRoot, logEntry }`
-   document the online `verify` reads (no parallel format).
+   document the online `verify` reads (no parallel format). A URL source is fetched
+   through the hardened path shared with `verify` (see
+   [Remote fetch hardening](verify.md#remote-fetch-hardening)): `http(s)`-only,
+   redirects refused, body capped at **16 MiB**.
 3. **Pack** every path in `release.files`, reading its bytes from the project
    (rejecting absolute / `..` paths), base64-encoding, and classifying it.
 4. **Seal**: `contentHash = sha2-256(canonicalize(payload))`.

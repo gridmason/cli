@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import type { IO } from '../io.js';
 import { ExitCodeError } from '../exit.js';
 import { runBundleExport, runBundleInspect } from '../bundle/index.js';
+import { fetchTextCapped } from '../net.js';
 import { addGlobalOptions, type GlobalOptions } from './global-options.js';
 
 interface ExportOptions extends GlobalOptions {
@@ -21,11 +22,7 @@ function fsDeps() {
   return {
     readText: (file: string) => readFile(file, 'utf8'),
     readBytes: async (file: string): Promise<Uint8Array> => new Uint8Array(await readFile(file)),
-    fetchText: async (url: string): Promise<string> => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-      return response.text();
-    },
+    fetchText: (url: string) => fetchTextCapped(url),
     writeText: (file: string, data: string) => writeFile(file, data, 'utf8'),
     env: (name: string) => process.env[name],
     now: () => Date.now(),
