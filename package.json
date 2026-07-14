@@ -28,6 +28,10 @@
     "./checks": {
       "types": "./dist/checks/index.d.ts",
       "import": "./dist/checks/index.js"
+    },
+    "./checks/fixtures": {
+      "types": "./dist/checks/fixtures/index.d.ts",
+      "import": "./dist/checks/fixtures/index.js"
     }
   },
   "files": [
