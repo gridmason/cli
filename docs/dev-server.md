@@ -1,7 +1,7 @@
 # `gridmason dev` — the local author loop
 
 `gridmason dev` is the develop step of the author loop (SPEC §4, FR-4/FR-5). It
-starts a localhost HTTP server that does three jobs and **no more** — it is a
+starts a localhost HTTP server that does four jobs and **no more** — it is a
 conduit, never a data backend:
 
 1. **Serves the widget `entry` module** (and its sibling source) so the Gridmason
@@ -11,6 +11,10 @@ conduit, never a data backend:
    fixture implementation, so the loop works with no dashboard and no backend.
 3. **Live-reloads** on every edit to `src/`, `manifest.json`, or `fixtures/`, and
    **re-validates the manifest** on the fly.
+4. **Mounts an SDK inspector** (`/@dev/inspector`) showing the capabilities the
+   manifest declared against the SDK calls the widget actually made — so an
+   undeclared reach or an uncovered data path is visible before review. See
+   [The SDK inspector](#the-sdk-inspector-spec-4-fr-6).
 
 ```
 gridmason dev                       # fixture harness at http://127.0.0.1:3000
@@ -44,9 +48,58 @@ the dashboard, on its own origin, can import the entry and fetch the dev state.
 | `GET /@dev/capabilities` | the manifest's declared `capabilities` |
 | `GET /@dev/fixtures` | the base `FixtureFile` (`records`/`net`/`events`) |
 | `GET /@dev/context` | `{ context, source, name? }` — the active page context |
-| `GET /@dev/events` | the SSE hot-reload stream |
+| `GET /@dev/events` | the SSE stream (hot-reload `reload` frames **and** SDK-inspector `inspect` frames) |
+| `GET /@dev/inspector` | the standalone SDK-inspector page |
+| `GET /@dev/inspect` | `{ declared, calls }` — the current inspector session (catch-up for a freshly-opened panel) |
+| `POST /@dev/inspect` | the harness reports one observed gated SDK call `{ method, outcome, arg }` |
 | `POST /@dev/sdk` | **proxy mode only:** enforce + forward one SDK call |
 | `GET /@npm/@gridmason/…` | the browser-side `@gridmason/*` ESM for the harness import map |
+
+## The SDK inspector (SPEC §4, FR-6)
+
+`gridmason dev` mounts a standalone **SDK inspector** at `GET /@dev/inspector`
+(also linked from the harness dev bar). It answers one review-anticipating
+question for the author: **do the capabilities the manifest declared match the
+SDK calls the widget actually makes?** It changes no runtime behavior and serves
+no data — it is a pure feedback lens over the calls the mount already makes.
+
+The page has two tables:
+
+- **Declared capabilities** — every capability the live manifest declares, each
+  marked `used` or `not yet used` this session. A `not yet used` capability is an
+  over-declaration to trim before publishing (a smaller capability set clears
+  review faster).
+- **Observed SDK calls** — every **gated** call the widget made, one row each:
+
+  | Column | Meaning |
+  |---|---|
+  | `#` | arrival order within the current mount (resets each re-mount) |
+  | `Method` | the dotted SDK method, e.g. `records.read` |
+  | `Capability` | the capability the call required, in `<api>[:<scope>]` form |
+  | `Declared` | `declared`, or **`undeclared`** — a **violation**: the manifest never declared this capability, so a host (and review) would deny it. The row is flagged red. |
+  | `Outcome` | how the call resolved (below) |
+
+  Outcomes: **`fixture-hit`** (a fixture answered), **`default-empty`** (allowed
+  but no fixture matched — an uncovered data path, flagged amber, add a fixture),
+  **`allowed`** (a gated `events` call, no fixture concept), **`denied`** (the
+  undeclared-capability violation). Under `--proxy`, the server records each
+  forwarded call as **`proxied`** (or **`proxy-error`**) instead, since data comes
+  from the real host rather than a fixture.
+
+Only capability-bearing (gated `records` / `net` / `events`) calls appear —
+ungated calls (`settings` / `nav` / `telemetry`) carry no capability and are out
+of scope for a capability inspector.
+
+**How it stays live.** In fixture mode the SDK fixture implementation
+(`@gridmason/sdk/fixture`) already tags each gated call on its shared recorder
+with the outcome above; the harness reports that tag to `POST /@dev/inspect`,
+where the server enriches it with the required capability and whether the live
+manifest declares it (the same grammar the `--proxy` gate uses), then broadcasts
+it to the inspector as an `inspect` frame over the **shared SSE channel** — no
+second transport. A freshly-opened panel catches up via `GET /@dev/inspect`.
+Every re-mount (a source/manifest reload, or a fixture/context hot-swap) starts a
+fresh session: the server clears the log and the inspector re-pulls, so the panel
+always reflects the current code, never a stale accumulation across edits.
 
 ## `--context <name>` — named page-context presets
 

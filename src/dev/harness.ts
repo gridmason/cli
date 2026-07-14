@@ -68,6 +68,7 @@ ${JSON.stringify(importMap(), null, 2)}
   #gm-dev-bar { padding: 8px 12px; font: 13px/1.4 ui-monospace, monospace; border-bottom: 1px solid #8883; display: flex; gap: 12px; align-items: center; }
   #gm-dev-status[data-ok="false"] { color: #c0392b; }
   #gm-dev-status[data-ok="true"] { color: #27ae60; }
+  #gm-dev-bar a { margin-left: auto; color: inherit; }
   #gm-dev-mount { padding: 16px; }
 </style>
 </head>
@@ -76,6 +77,7 @@ ${JSON.stringify(importMap(), null, 2)}
   <strong>${escapeHtml(config.tag)}</strong>
   <span id="gm-dev-status">loading…</span>
   <span id="gm-dev-mode">${config.mode}</span>
+  <a href="${ENDPOINTS.inspector}" target="_blank" rel="noopener">SDK inspector ↗</a>
 </div>
 <div id="gm-dev-mount"></div>
 <script type="module">
@@ -143,9 +145,41 @@ async function getJson(url) {
 async function buildSdk(context) {
   const capabilities = await getJson(endpoints.capabilities);
   if (BOOT.mode === 'proxy') return proxySdk(capabilities, context);
-  const { createFixtureSDK } = await import('@gridmason/sdk/fixture');
+  const { createFixtureSDK, getFixtureControls } = await import('@gridmason/sdk/fixture');
   const fixtures = await getJson(endpoints.fixtures);
-  return createFixtureSDK(fixtures, { capabilities, context, instanceId: 'dev-1' });
+  const sdk = createFixtureSDK(fixtures, { capabilities, context, instanceId: 'dev-1' });
+  instrument(sdk, getFixtureControls);
+  return sdk;
+}
+
+/**
+ * Mirror every gated SDK call the widget makes to the SDK inspector. The fixture
+ * SDK already tags each gated call on its shared recorder with a fixture outcome
+ * ('fixture-hit'/'default-empty'/'denied'/'allowed'); we wrap that recorder's
+ * \`record\` so the tag is reported to the dev server without touching the value the
+ * widget receives — a pure feedback tap, no behavior change. Ungated calls carry
+ * no outcome tag and are not reported (they bear no capability).
+ */
+function instrument(sdk, getFixtureControls) {
+  let recorder;
+  try { recorder = getFixtureControls(sdk).recorder; } catch { return; }
+  const record = recorder.record.bind(recorder);
+  recorder.record = (method, args, meta) => {
+    const call = record(method, args, meta);
+    const outcome = meta && meta.outcome;
+    if (outcome) report(method, outcome, args && args[0]);
+    return call;
+  };
+}
+
+/** Fire-and-forget POST one observed gated call to the inspector channel. */
+function report(method, outcome, arg) {
+  let safeArg = null;
+  try { safeArg = arg === undefined ? null : JSON.parse(JSON.stringify(arg)); } catch { safeArg = null; }
+  fetch(endpoints.inspect, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ method, outcome, arg: safeArg }),
+  }).catch(() => {});
 }
 
 /** A thin SDK whose gated calls POST to the dev server, which enforces + forwards. */
