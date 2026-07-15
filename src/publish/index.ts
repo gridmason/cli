@@ -15,6 +15,7 @@ export {
   PRODUCTION_INSTANCE,
   SIGSTORE_AUDIENCE,
   STAGING_INSTANCE,
+  acquireIdentity,
   decodeOidcToken,
   resolveIdentity,
   selectProvider,
@@ -22,12 +23,23 @@ export {
   toPublisherIdentity,
 } from './identity.js';
 export type {
+  AcquiredIdentity,
   IdentityErrorCode,
   IdentityProvider,
+  InteractiveProviderFactory,
   OidcIdentity,
   ResolveOptions,
   SigstoreInstance,
 } from './identity.js';
+export {
+  DEFAULT_INTERACTIVE_TIMEOUT_MS,
+  DEFAULT_OIDC_CLIENT_ID,
+  DEFAULT_OIDC_SCOPES,
+  interactiveBrowserProvider,
+  runBrowserAuthFlow,
+  systemOpenBrowser,
+} from './browser-login.js';
+export type { InteractiveOptions, OpenBrowser } from './browser-login.js';
 export { clearSession, configDir, readSession, sessionPath, toSession, writeSession } from './session.js';
 export type { Session } from './session.js';
 export { reportIdentityError, runLogin } from './login.js';
@@ -35,7 +47,28 @@ export type { LoginOptions } from './login.js';
 export { runWhoami } from './whoami.js';
 export type { WhoamiOptions } from './whoami.js';
 
-/** A poll of registry review state after upload. Shape grows as publish lands. */
-export interface ReviewStatus {
-  status: 'pending' | 'passed' | 'failed';
-}
+// The publish path (SPEC §7, §8; FR-11): artifact assembly, keyless signing,
+// the registry Publish API client, and the publish/appeal orchestration.
+export { assembleArtifact } from './artifact.js';
+export type { Artifact, ArtifactFile, AssembleErrorCode, AssembleResult, FileRole } from './artifact.js';
+export { ARTIFACT_PAYLOAD_TYPE, ephemeralSigner, sigstoreSigner } from './signing.js';
+export type { ArtifactSigner, ArtifactSubject, DsseEnvelope, SignRequest } from './signing.js';
+export { fetchTransport, MAX_RESPONSE_BYTES } from './transport.js';
+export type { HttpResponse, RequestOptions, Transport } from './transport.js';
+export { appealArtifact, getReviewStatus, uploadArtifact } from './upload.js';
+export type {
+  ArtifactRecord,
+  ArtifactState,
+  ClientResult,
+  RegistryClientDeps,
+  RegistryError,
+  ReviewFinding,
+  ReviewStatus,
+  UploadRequest,
+} from './upload.js';
+export { MANUAL_FINDING, mapFindings } from './findings.js';
+export type { MappedFinding } from './findings.js';
+export { runPublish } from './run.js';
+export type { PublishArgs, PublishDeps } from './run.js';
+export { runAppeal } from './appeal.js';
+export type { AppealArgs, AppealDeps } from './appeal.js';

@@ -118,7 +118,7 @@ describe('selectProvider', () => {
     expect(await selectProvider({}).getToken()).toBe(STAGING_TOKEN);
   });
 
-  it('refuses interactive login until the issuer allowlist lands', () => {
+  it('refuses interactive login when no interactive factory is wired (non-interactive context)', () => {
     try {
       selectProvider({});
       expect.unreachable('selectProvider should have thrown');
@@ -126,6 +126,19 @@ describe('selectProvider', () => {
       expect(err).toBeInstanceOf(IdentityError);
       expect((err as IdentityError).code).toBe('interactive-unsupported');
     }
+  });
+
+  it('uses the interactive browser factory as the last resort when one is supplied', async () => {
+    const provider = selectProvider({ interactive: () => ({ getToken: () => Promise.resolve(STAGING_TOKEN) }) });
+    expect(await provider.getToken()).toBe(STAGING_TOKEN);
+  });
+
+  it('prefers an explicit token over the interactive factory', async () => {
+    const provider = selectProvider({
+      token: STAGING_TOKEN,
+      interactive: () => ({ getToken: () => Promise.reject(new Error('should not be called')) }),
+    });
+    expect(await provider.getToken()).toBe(STAGING_TOKEN);
   });
 });
 

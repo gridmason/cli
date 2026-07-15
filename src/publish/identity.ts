@@ -72,11 +72,11 @@ export interface OidcIdentity {
 
 /** Enumerated identity failures — callers switch on the code, not the message. */
 export type IdentityErrorCode =
-  /** No OIDC token could be obtained (no ambient context, no `--token`, provider failed). */
+  /** No OIDC token could be obtained (no ambient context, no `--token`, provider/browser flow failed). */
   | 'no-token'
   /** The OIDC token is not a well-formed JWT or is missing a required claim. */
   | 'invalid-token'
-  /** The interactive browser flow is not wired yet (awaits the registry issuer allowlist, registry §2). */
+  /** No non-interactive token source and no interactive browser flow available in this context. */
   | 'interactive-unsupported'
   /** No identity has been established (`whoami` with no prior `login`). */
   | 'not-logged-in';
@@ -141,6 +141,14 @@ export function decodeOidcToken(token: string): OidcIdentity {
   };
 }
 
+/**
+ * Builds the last-resort interactive browser provider. The `login` command wires
+ * this (with the system browser + IO) only in an interactive terminal; contexts
+ * that leave it unset (e.g. `publish`, or a non-TTY session) fall through to the
+ * `interactive-unsupported` error rather than launching a browser unexpectedly.
+ */
+export type InteractiveProviderFactory = () => IdentityProvider;
+
 /** How `login` should acquire the OIDC token. */
 export interface ResolveOptions {
   /** An explicit OIDC token (`--token` / `GRIDMASON_OIDC_TOKEN`); bypasses ambient + interactive. */
@@ -151,6 +159,8 @@ export interface ResolveOptions {
   audience?: string | undefined;
   /** Test seam: an explicit identity provider, bypassing selection. */
   provider?: IdentityProvider | undefined;
+  /** Last-resort interactive browser provider factory; absent in non-interactive contexts. */
+  interactive?: InteractiveProviderFactory | undefined;
 }
 
 /** True when a GitHub Actions OIDC context is present (the ambient case we auto-enable). */
@@ -160,11 +170,13 @@ function hasAmbientOidc(): boolean {
 
 /**
  * Pick the identity provider for a `login`, in priority order: an injected
- * provider (tests) → an explicit token → the ambient CI context. The interactive
- * browser flow is intentionally **not** wired here: which OIDC issuers are
- * trusted is the registry's trust anchor (registry §2) and the browser leg lands
- * with that decision, so until then we fail with an actionable
- * `interactive-unsupported` rather than guess an issuer allowlist.
+ * provider (tests) → an explicit token → the ambient CI context → the interactive
+ * browser flow (when the caller supplied a factory). Which OIDC issuer to trust is
+ * a per-registry decision (registry §2); the interactive factory carries the
+ * chosen issuer and is only wired by the `login` command in an interactive
+ * terminal, so a non-interactive context (e.g. `publish`, CI without a token)
+ * falls through to an actionable `interactive-unsupported` instead of launching a
+ * browser.
  */
 export function selectProvider(opts: ResolveOptions): IdentityProvider {
   if (opts.provider) {
@@ -177,11 +189,15 @@ export function selectProvider(opts: ResolveOptions): IdentityProvider {
   if (opts.ambient ?? hasAmbientOidc()) {
     return new CIContextProvider(opts.audience ?? SIGSTORE_AUDIENCE);
   }
+  if (opts.interactive) {
+    return opts.interactive();
+  }
   throw new IdentityError(
     'interactive-unsupported',
-    'interactive browser login is not wired yet (it lands with the registry OIDC issuer allowlist, registry §2). ' +
-      'Establish identity from a CI OIDC context (run in CI, or pass --ambient), or supply a token directly with ' +
-      '--token <jwt> or GRIDMASON_OIDC_TOKEN. See docs/login-whoami.md.',
+    'could not establish an identity: no --token / GRIDMASON_OIDC_TOKEN, no ambient CI OIDC context, and no ' +
+      'interactive terminal for the browser sign-in flow. Supply a token with --token <jwt> or GRIDMASON_OIDC_TOKEN, ' +
+      'or run in CI with an ambient OIDC context (--ambient). In an interactive terminal, `gridmason login` opens a ' +
+      'browser to sign in. See docs/login-whoami.md.',
   );
 }
 
@@ -202,6 +218,41 @@ export async function resolveIdentity(opts: ResolveOptions = {}): Promise<OidcId
     throw new IdentityError('no-token', 'the identity provider returned an empty OIDC token');
   }
   return decodeOidcToken(token);
+}
+
+/**
+ * An OIDC identity acquired for `publish`: the **raw token** (the bearer the
+ * Publish API requires *and* the OIDC binding the keyless signer's Fulcio cert is
+ * issued against), the decoded claims (display + envelope provenance), and the
+ * provider it came from (so the signer re-uses the same identity source). Unlike
+ * the persisted session (`session.ts`), the token is held only in memory for the
+ * duration of one `publish` and never written.
+ */
+export interface AcquiredIdentity {
+  readonly token: string;
+  readonly identity: OidcIdentity;
+  readonly provider: IdentityProvider;
+}
+
+/**
+ * Acquire the OIDC token + claims + provider `publish` needs. Same acquisition
+ * rules as {@link resolveIdentity} (injected provider → `--token`/env → ambient
+ * CI), but it retains the raw token in memory: `publish` presents it as the upload
+ * bearer and binds the keyless signature to it. Throws {@link IdentityError} on
+ * any acquisition failure.
+ */
+export async function acquireIdentity(opts: ResolveOptions = {}): Promise<AcquiredIdentity> {
+  const provider = selectProvider(opts);
+  let token: string;
+  try {
+    token = await provider.getToken();
+  } catch (err) {
+    throw new IdentityError('no-token', `could not obtain an OIDC token: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!token) {
+    throw new IdentityError('no-token', 'the identity provider returned an empty OIDC token');
+  }
+  return { token, identity: decodeOidcToken(token), provider };
 }
 
 /**
