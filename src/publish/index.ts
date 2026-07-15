@@ -26,10 +26,20 @@ export type {
   AcquiredIdentity,
   IdentityErrorCode,
   IdentityProvider,
+  InteractiveProviderFactory,
   OidcIdentity,
   ResolveOptions,
   SigstoreInstance,
 } from './identity.js';
+export {
+  DEFAULT_INTERACTIVE_TIMEOUT_MS,
+  DEFAULT_OIDC_CLIENT_ID,
+  DEFAULT_OIDC_SCOPES,
+  interactiveBrowserProvider,
+  runBrowserAuthFlow,
+  systemOpenBrowser,
+} from './browser-login.js';
+export type { InteractiveOptions, OpenBrowser } from './browser-login.js';
 export { clearSession, configDir, readSession, sessionPath, toSession, writeSession } from './session.js';
 export type { Session } from './session.js';
 export { reportIdentityError, runLogin } from './login.js';
