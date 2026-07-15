@@ -31,7 +31,8 @@ fail the run), so `publish` and CI fail closed. A missing or non-JSON
 Every check has a **stable, dotted id**: `<group>.<slug>`.
 
 - `<group>` names the check family from SPEC §5, and is what a review tier is
-  mapped from (#13): `manifest`, `sdk`, `deps`, `dom`.
+  mapped from (#13): `manifest`, `sdk`, `deps`, `dom`, and — for the registry-aware
+  checks (`--registry`) — `capability`.
 - `<slug>` names the specific rule within the group.
 
 Ids are a **public contract**: they are echoed by every result the check emits and
@@ -63,9 +64,15 @@ before trusting a clean run.
 | [`sdk.obfuscation`](#sdkobfuscation) | sdk | TF | fail / warn | no indirection that hides network/DOM access |
 | [`deps.acyclic`](#depsacyclic) | deps | automated | fail | the `requires` graph is acyclic |
 | [`dom.abuse`](#domabuse) | dom | TF | warn | a frontend remote stays inside its own subtree |
+| [`capability.diff`](#capabilitydiff) | capability | reReview | warn | no capability increase vs the last published version (`--registry`) |
+| [`deps.server-acyclic`](#depsserver-acyclic) | deps | automated | fail | the `requires` graph is acyclic against the registry's live graph (`--registry`) |
 
 Tier ⇒ review SLA is resolved in [Review tiers](#review-tiers): `automated` runs
-synchronously at publish; `TF` is the 5-day frontend-remote human review.
+synchronously at publish; `TF` is the 5-day frontend-remote human review; `reReview`
+is the 3-day capability-increase re-review lane.
+
+The last two checks run **only with `--registry <url>`** — see
+[The `--registry` registry-aware checks](#the---registry-registry-aware-checks).
 
 ### `manifest.schema`
 
@@ -176,6 +183,44 @@ synchronously at publish; `TF` is the 5-day frontend-remote human review.
   document- or window-level reach, top navigation, and cross-frame access are
   reviewed under the frontend (TF) tier.
 
+### `capability.diff`
+
+- **Group / tier / severity:** capability · reReview · **warn**. **`--registry`
+  only.**
+- **Checks:** the manifest's declared `capabilities` against the **last published
+  version** of the same `tag` on the target registry. Each capability declared now
+  but absent from the last published version is an **increase**; a registry that
+  raises an artifact's capabilities re-enters review at the 3-day capability
+  re-review lane (registry §4), so the check surfaces it before you publish.
+- **Warns when:** a capability is added (one `warn` per added `api[:scope]`). A
+  **first publish** (the tag has never been published) passes — there is no
+  baseline to diff. Removing a capability is **not** a re-review trigger, so a pure
+  decrease passes. Defers (emits nothing) when `tag` is not a string
+  (`manifest.tag` / `manifest.schema` own that). If the registry cannot be reached
+  or answers malformed, the check **warns** (the diff is unknown) rather than
+  passing — it never reports a false "clean".
+- **Fix:** this is advisory — it does not fail the gate. If the increase is
+  intended, expect the 3-day re-review SLA; declare only the capabilities the
+  widget actually needs. The registry runs the authoritative diff at publish.
+
+### `deps.server-acyclic`
+
+- **Group / tier / severity:** deps · automated · **fail**. **`--registry` only.**
+- **Checks:** the manifest's `requires` graph submitted to the target registry for
+  validation against its **live transitive graph** (registry §7). Where the offline
+  [`deps.acyclic`](#depsacyclic) sees one manifest — so it can only catch a
+  self-dependency — this catches a **cross-manifest, transitive** cycle that only
+  appears once the registry resolves the rest of the graph, failing it in CI rather
+  than at publish. On a cycle the message prints the path the registry returned
+  (`acme-chart → other-grid → acme-chart`).
+- **Fails when:** the registry confirms the graph is cyclic. Defers when `tag` is
+  not a string or `requires` is absent/not an array (those are `manifest.tag` /
+  `manifest.schema`'s to report); with no requirements it passes without a network
+  call (a node with no edges cannot be in a cycle). If the registry cannot be
+  reached or answers malformed, the check **warns** — it never invents a cycle, and
+  the publish-time gate (registry §7) remains the authority.
+- **Fix:** break the cycle — a widget must not (transitively) require itself.
+
 ### Why the manifest lint is three checks, not one
 
 SPEC §5.1 lists manifest lint as one item ("schema-valid, publisher-prefix, shapes,
@@ -268,11 +313,50 @@ maps with a one-line addition:
 | `deps` | `automated` | same automated stage — the dependency-DAG check (registry §4.1) | synchronous at publish |
 | `sdk` | `TF` | frontend-remote human review: SDK-adherence static analysis (registry §4.2) | 5d |
 | `dom` | `TF` | frontend-remote human review: DOM-abuse heuristics (registry §4.2) | 5d |
+| `capability` | `reReview` | capability-increase re-review lane (registry §4) — a publish that raises declared capabilities re-enters review | 3d |
 
 The `T1` tier (declarative artifacts, no executable content — SLA 2d) exists in the
 registry's review model and is carried in the report's tier catalog for
 completeness, though no v0 check family targets it. An unmapped group falls back to
 `automated`, the floor every publish hits.
+
+## The `--registry` registry-aware checks
+
+`gridmason lint --registry <url>` adds two checks that the offline lint cannot run
+because they consult the target registry (SPEC §5 checks 3–4, FR-12). They are the
+CLI's pre-publish preview of two registry gates:
+
+- [`capability.diff`](#capabilitydiff) — diffs the manifest's declared capabilities
+  against the **last published version** on the registry and warns on an increase
+  ("will re-trigger review", the 3-day re-review lane, registry §4).
+- [`deps.server-acyclic`](#depsserver-acyclic) — submits the `requires` graph for
+  validation against the registry's **live transitive graph**, catching a
+  cross-manifest cycle in CI rather than at publish (registry §7).
+
+Both plug into the same `--json` report and check-id scheme as the offline checks:
+a `--registry` finding carries a `tier` and lands in the `tiers` catalog exactly
+like its offline counterparts (no divergent server/local vocabulary, SPEC §8).
+
+They are **fail-safe, not fail-closed**: an unreachable or malformed registry
+yields a `warn` (the answer is unknown), never a false pass or a phantom failure.
+The authority is the registry's own publish-time gate; `lint --registry` only makes
+its likely verdict visible early.
+
+### The registry surfaces these checks call
+
+The two checks read two read-only registry endpoints (the cross-repo contract with
+`gridmason/registry`, tracked in gridmason/registry#31):
+
+- `GET /v1/tags/:tag/capabilities` → `200` with the last published version's
+  declared capabilities `{ registryId?, tag, version, capabilities: [{ api, scope? }] }`,
+  or `404` when the tag has never been published (the first-publish case).
+- `POST /v1/dependencies/validate` with `{ tag, requires: [{ tag, range? }] }` →
+  `200` with `{ registryId?, acyclic, cycle? }`, where `cycle` is the `[a, …, a]`
+  path (the same shape the offline cycle finder returns) when `acyclic` is false.
+
+The transport is hardened like the other remote fetches (`src/net.ts`): `http(s)`
+only, no redirects, and a hard response-size cap on the attacker-influenceable
+registry URL.
 
 ## Consuming the checks as a library (the registry path)
 
@@ -289,3 +373,11 @@ const rejected = hasFailure(results);   // true if any result is `fail`
 `CheckContext` is **additive**: a later check that needs more input (e.g. #12's
 source files) adds an optional field; existing checks ignore what they do not
 read, so the surface never breaks a consumer.
+
+The registry-aware checks (`capability.diff`, `deps.server-acyclic`) are
+**deliberately not** in the `checks` array above: they *call* the registry, so the
+registry service cannot run them against itself, and they are asynchronous where
+the offline checks are pure. They are exported separately (`registryChecks`,
+`runRegistryChecks`, `RegistryCheck`, `RegistryClient`) for the CLI, and produce
+the same `CheckResult` shape, so their findings flow through the identical report
+and tier mapping.

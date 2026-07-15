@@ -18,6 +18,18 @@
 export type CheckStatus = 'pass' | 'warn' | 'fail';
 
 /**
+ * A capability as a raw, untrusted `{ api, scope? }` pair — the shape a manifest's
+ * `capabilities[]` entry and a registry's capability-history record both carry
+ * before validation. The registry-aware capability diff (SPEC §5 check 3) compares
+ * these across versions; `api`/`scope` are `string` because a check reads them
+ * defensively (`manifest.schema` / `manifest.capabilities` own their well-formedness).
+ */
+export interface RawCapability {
+  readonly api: string;
+  readonly scope?: string;
+}
+
+/**
  * One of the widget's own source files, the input to the static-analysis checks
  * (#12: SDK-adherence, DOM-abuse). Built by the caller — the CLI reads them off
  * disk (`gridmason lint`), the registry from the uploaded artifact — never by a
