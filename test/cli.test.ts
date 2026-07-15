@@ -50,35 +50,38 @@ describe('--version', () => {
   });
 });
 
-describe('unimplemented commands', () => {
-  it('print a not-yet-implemented notice on stderr', async () => {
-    // `publish` stands in for a still-stubbed command; `login`/`whoami` are now
-    // implemented (their behavior is covered by login-whoami.test.ts).
+describe('publish is wired to the real command', () => {
+  it('refuses without a registry, reporting a human error on stderr', async () => {
+    // Every SPEC §2 command is now implemented — `publish` fails fast on its own
+    // terms (no `--registry`) rather than printing a stub notice. Full behavior is
+    // covered in publish.test.ts / publish.e2e.test.ts.
     const { code, out, err } = await drive(['publish']);
-    expect(code).toBe(0);
-    expect(err).toContain('not yet implemented');
+    expect(code).toBe(1);
+    expect(err).toContain('registry');
     expect(out).toBe('');
   });
 
-  it('emit a stable JSON object on stdout with --json', async () => {
-    // `publish` stands in for a still-stubbed command here; `lint` is now
-    // implemented (its behavior is covered by lint.test.ts / checks.test.ts).
+  it('emits a stable JSON error on stdout with --json when no registry is given', async () => {
     const { code, out, err } = await drive(['publish', '--json']);
-    expect(code).toBe(0);
+    expect(code).toBe(1);
     expect(err).toBe('');
-    const parsed = JSON.parse(out) as { command: string; status: string; message: string };
+    const parsed = JSON.parse(out) as { command: string; status: string; code: string };
     expect(parsed.command).toBe('publish');
-    expect(parsed.status).toBe('not-implemented');
-    expect(typeof parsed.message).toBe('string');
+    expect(parsed.status).toBe('error');
+    expect(parsed.code).toBe('no-registry');
   });
 });
 
 describe('global flags', () => {
   it('are accepted after the command name', async () => {
+    // With `--registry` supplied, `publish` moves past the registry gate and fails
+    // on the next one (the CLI package root has no manifest.json) — proving the
+    // flags were parsed and routed to the real command.
     const { code, out } = await drive(['publish', '--registry', 'https://registry.example', '--json']);
-    expect(code).toBe(0);
-    const parsed = JSON.parse(out) as { command: string };
+    expect(code).toBe(1);
+    const parsed = JSON.parse(out) as { command: string; status: string };
     expect(parsed.command).toBe('publish');
+    expect(parsed.status).toBe('error');
   });
 
   it('--offline is wired and enforces the blind-root refusal', async () => {

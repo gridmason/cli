@@ -205,6 +205,41 @@ export async function resolveIdentity(opts: ResolveOptions = {}): Promise<OidcId
 }
 
 /**
+ * An OIDC identity acquired for `publish`: the **raw token** (the bearer the
+ * Publish API requires *and* the OIDC binding the keyless signer's Fulcio cert is
+ * issued against), the decoded claims (display + envelope provenance), and the
+ * provider it came from (so the signer re-uses the same identity source). Unlike
+ * the persisted session (`session.ts`), the token is held only in memory for the
+ * duration of one `publish` and never written.
+ */
+export interface AcquiredIdentity {
+  readonly token: string;
+  readonly identity: OidcIdentity;
+  readonly provider: IdentityProvider;
+}
+
+/**
+ * Acquire the OIDC token + claims + provider `publish` needs. Same acquisition
+ * rules as {@link resolveIdentity} (injected provider → `--token`/env → ambient
+ * CI), but it retains the raw token in memory: `publish` presents it as the upload
+ * bearer and binds the keyless signature to it. Throws {@link IdentityError} on
+ * any acquisition failure.
+ */
+export async function acquireIdentity(opts: ResolveOptions = {}): Promise<AcquiredIdentity> {
+  const provider = selectProvider(opts);
+  let token: string;
+  try {
+    token = await provider.getToken();
+  } catch (err) {
+    throw new IdentityError('no-token', `could not obtain an OIDC token: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!token) {
+    throw new IdentityError('no-token', 'the identity provider returned an empty OIDC token');
+  }
+  return { token, identity: decodeOidcToken(token), provider };
+}
+
+/**
  * Project an established identity onto the `PublisherSignature` fields `publish`
  * records in the signature envelope (protocol §4.2): the `issuer` and the
  * `subjectClaims` the OIDC issuer asserted. These are mirrored into the envelope
