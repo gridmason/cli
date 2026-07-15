@@ -1,5 +1,35 @@
 # @gridmason/cli
 
+## 0.5.0
+
+### Minor Changes
+
+- a157ff9: Add the interactive browser sign-in leg to `gridmason login` (SPEC §7, FR-10).
+
+  In an interactive terminal, `login` with no token source now opens the browser to
+  sign in via the standard OAuth **native-app** flow — an authorization code with
+  **PKCE** (`S256`) and a `127.0.0.1` **loopback redirect** (RFC 8252): it starts an
+  ephemeral loopback listener, opens the issuer's authorization endpoint (and prints
+  the URL for manual use), receives the code, exchanges it for the OIDC identity
+  token, and reads its claims — with `state` + `nonce` validation, redirect-refusing
+  fetches, and **no token or key written to disk**. Pick the trust anchor with
+  `--issuer` (default: the Sigstore public-good issuer) and the OAuth client with
+  `--client-id`. Non-interactive contexts (CI, pipes, headless) are unchanged: they
+  still fail fast with an actionable `interactive-unsupported` message pointing to
+  `--ambient` or `--token`. See `docs/login-whoami.md`.
+
+- 30d6728: Add `gridmason publish` and `gridmason appeal` (SPEC §7, §8; FR-11).
+
+  `publish` runs the shared `src/checks` locally and **refuses to upload** an
+  artifact that would fail review (a lint failure, a cyclic `requires`, or an
+  undeclared capability reach — never upload known-bad), then signs keyless
+  (Sigstore-style, bound to the `login` OIDC identity), uploads the immutable
+  content-hashed artifact (manifest + entry + chunks + schemas + docs) to the
+  target registry's Publish API, and polls review status. On rejection it prints the
+  reviewer's findings **mapped to the same `lint` check ids**; on approval the
+  registry countersigns and publishes. `appeal <artifact-id>` routes a rejected
+  submission to a second reviewer. See `docs/publish.md`.
+
 ## 0.4.0
 
 ### Minor Changes
