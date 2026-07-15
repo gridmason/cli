@@ -90,14 +90,15 @@ that produces the same DSSE shape without reaching Sigstore.
 a **second reviewer** (never the original — the reviewer≠author rule is the
 registry's). The `<artifact-id>` is the id `publish` printed.
 
-## Registry contract note (M-B1 gap)
+## Registry contract note
 
-The registry's M-B1 Publish API advances review state **synchronously in the
-upload response** and exposes review findings only on a **reviewer-only** lane; it
-does not yet ship a publisher-facing status/findings endpoint or an appeal
-endpoint. `publish`/`appeal` are written against the forward contract they need —
-`GET /v1/artifacts/:id` for status + findings and `POST /v1/artifacts/:id/appeal`
-for a second review — and **fall back gracefully** to the upload response's state
-when the status surface is absent. The end-to-end tests drive a **contract-
-faithful fake Publish API server** (which runs the shared checks as its automated
-review) in place of standing up the full registry service; see the test note.
+`publish`/`appeal` poll the registry's publisher-facing review surface:
+`GET /v1/artifacts/:id/status` for state + findings and
+`POST /v1/artifacts/:id/appeal` for a second review. The status path carries a
+`/status` suffix because the bare `GET /v1/artifacts/:id` template is the
+registry's frozen, hash-addressed artifact-serving origin; the two GET handlers
+cannot share one path template. The response shapes are unchanged. `publish` also
+**falls back gracefully** to the upload response's state when the status surface
+is absent. The end-to-end tests drive a **contract-faithful fake Publish API
+server** (which runs the shared checks as its automated review) in place of
+standing up the full registry service; see the test note.

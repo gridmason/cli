@@ -11,7 +11,7 @@
  *   **shared `src/checks` module** as its automated review — the very code
  *   `gridmason lint` runs — so a clean artifact advances to `reviewing` and a
  *   failing one to `rejected`, exactly as the real automated stage does.
- * - `GET /v1/artifacts/:id` / `POST /v1/artifacts/:id/appeal` are the
+ * - `GET /v1/artifacts/:id/status` / `POST /v1/artifacts/:id/appeal` are the
  *   publisher-facing status + second-review surfaces the flow needs (see the PR
  *   note: M-B1 advances state synchronously and exposes findings only on the
  *   reviewer-only lane, so these are served by the fake here).
@@ -98,7 +98,7 @@ export class FakeRegistry {
       if (!hasToken) return error(401, 'missing_token', 'a bearer token is required');
       return this.upload(body);
     }
-    const statusMatch = /^\/v1\/artifacts\/([^/]+)$/.exec(path);
+    const statusMatch = /^\/v1\/artifacts\/([^/]+)\/status$/.exec(path);
     if (method === 'GET' && statusMatch) {
       if (!hasToken) return error(401, 'missing_token', 'a bearer token is required');
       return this.status(decodeURIComponent(statusMatch[1]!));
