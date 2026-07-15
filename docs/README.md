@@ -18,6 +18,9 @@ Reference and guides for the `gridmason` binary — the widget-author devkit
 
 - [**`gridmason login` / `whoami`**](login-whoami.md) — establish and inspect the
   OIDC identity used for keyless Sigstore signing (no long-lived key on disk).
+- [**`gridmason publish` / `appeal`**](publish.md) — lint-gate (fail closed) +
+  keyless sign + upload + poll review; the served file set, findings mapped to
+  `lint` check ids, and routing a second review.
 
 ## Trust / verify
 
