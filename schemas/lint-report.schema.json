@@ -52,7 +52,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "The stable dotted check id (`<group>.<slug>`, e.g. `manifest.schema`, `deps.acyclic`)."
+          "description": "The stable dotted check id (`<group>.<slug>`, e.g. `manifest.schema`, `deps.acyclic`; the `--registry` checks add `capability.diff` and `deps.server-acyclic`)."
         },
         "status": { "enum": ["pass", "warn", "fail"] },
         "message": { "type": "string", "description": "Human-readable, specific to this finding." },
@@ -69,7 +69,7 @@
       "type": "object",
       "description": "A registry review tier (registry §4.1–§4.2): the stage a finding is reviewed under and, for a human tier, its flagship SLA.",
       "properties": {
-        "id": { "type": "string", "description": "Stable tier id (`automated`, `T1`, `TF`)." },
+        "id": { "type": "string", "description": "Stable tier id (`automated`, `T1`, `TF`, `reReview`)." },
         "title": { "type": "string", "description": "Human label (`frontend remote`)." },
         "sla": { "type": "string", "description": "Flagship review SLA (`5d`); absent for the synchronous automated stage." },
         "reference": { "type": "string", "description": "Where the tier is defined (`registry §4.2`)." }

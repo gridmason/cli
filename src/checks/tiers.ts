@@ -41,11 +41,16 @@ export interface ReviewTier {
  *   — it is kept here so the report's tier catalog documents the full surface.
  * - `TF` — frontend remotes, the common widget case: SDK-adherence static analysis
  *   + DOM-abuse heuristics (registry §4.2). Flagship SLA 5d.
+ * - `reReview` — the capability-increase re-review lane (registry §4): a publish
+ *   that raises the artifact's declared capabilities re-enters review at this SLA.
+ *   The registry-aware `capability.diff` check (`lint --registry`) feeds it, so an
+ *   author learns a capability increase resets the review SLA before publishing.
  */
 export const REVIEW_TIERS = {
   automated: { id: 'automated', title: 'automated review', reference: 'registry §4.1' },
   T1: { id: 'T1', title: 'declarative', sla: '2d', reference: 'registry §4.2' },
   TF: { id: 'TF', title: 'frontend remote', sla: '5d', reference: 'registry §4.2' },
+  reReview: { id: 'reReview', title: 'capability re-review', sla: '3d', reference: 'registry §4' },
 } as const satisfies Record<string, ReviewTier>;
 
 /** A known tier id. */
@@ -56,13 +61,17 @@ export type ReviewTierId = keyof typeof REVIEW_TIERS;
  * mapping: the manifest lint and the dependency-DAG check are automated-stage
  * gates (registry §4.1); the SDK-adherence (`sdk`) and DOM-abuse (`dom`) families
  * are the frontend-remote human review (registry §4.2). #12's `sdk.*` / `dom.*`
- * checks map here with no further change; a new family is one line.
+ * checks map here with no further change; a new family is one line. The registry-
+ * aware `capability.*` diff (`lint --registry`, #19) feeds the capability-increase
+ * re-review lane (registry §4); its `deps.server-acyclic` check is in the `deps`
+ * family, so it maps to the automated stage exactly like the offline `deps.acyclic`.
  */
 export const TIER_BY_GROUP: Readonly<Record<string, ReviewTierId>> = {
   manifest: 'automated',
   deps: 'automated',
   sdk: 'TF',
   dom: 'TF',
+  capability: 'reReview',
 };
 
 /**
