@@ -1,46 +1,71 @@
 /**
  * Keyless artifact signing (SPEC §7, §8): `publish` binds a short-lived signature
- * to the OIDC identity `login` established and produces a **DSSE-shaped signature
- * envelope** (`payloadType` + `payload` + non-empty `signatures[]`) over the
- * canonicalized artifact subject. The registry Publish API validates that shape
- * structurally and stores it opaquely; cryptographic verification against the
- * `@gridmason/protocol` envelope types is the registry's countersign stage
- * (registry docs/api/publish.md, "Signature envelope").
+ * to the OIDC identity `login` established and produces the **publisher half of
+ * the `@gridmason/protocol` `SignatureEnvelope`** — `{ formatVersion, subject{
+ * artifact, releaseHash }, publisherSig{ alg, cert, issuer, subjectClaims, sig } }`
+ * — over the canonical release subject. The registry Publish API validates that
+ * shape and its countersign stage applies the approval half; a host verifies both
+ * against `@gridmason/protocol` before loading (registry `docs/api/publish.md`,
+ * "Signature envelope"; owner decision on gridmason/cli#70 — the CLI emits the
+ * protocol envelope, not a bare DSSE object).
  *
- * The CLI holds **no bespoke crypto** and, keyless by default, no long-lived key:
+ * `releaseHash` binds the signature to the exact served bytes: it is the SHA-256
+ * multihash of the canonical (RFC-8785) release document `{ formatVersion,
+ * artifact, files }` whose `files` is the `{ path → content-hash }` map — the same
+ * document the registry countersign reproduces and checks the signature against,
+ * so producer and verifier agree on "the bytes".
+ *
+ * The CLI holds **no bespoke crypto** beyond assembling this wire shape, and keeps
+ * no long-lived key:
  *
  * - {@link sigstoreSigner} is the production path — `@sigstore/sign`'s
- *   {@link DSSEBundleBuilder} mints an ephemeral keypair in memory, gets a Fulcio
- *   short-lived certificate bound to the OIDC token, and logs to Rekor. Nothing
- *   touches disk. It needs network + an allowlisted-issuer token, so it is
+ *   {@link FulcioSigner} mints an ephemeral keypair in memory, gets a Fulcio
+ *   short-lived certificate bound to the OIDC token, and signs the subject.
+ *   Nothing touches disk. It needs network + an allowlisted-issuer token, so it is
  *   exercised opt-in (like `login`'s live-staging leg), not in the offline suite.
- * - {@link ephemeralSigner} is an offline keyless signer for the dev/e2e loop: a
- *   per-invocation in-memory ECDSA P-256 key signs the payload (ES256) and is
- *   discarded — no certificate, no network, no persisted key. It yields the same
- *   DSSE shape the Publish API accepts, so the whole publish flow is drivable
- *   against a local registry without reaching Sigstore.
+ * - {@link ephemeralSigner} is an offline keyless signer for the dev / registry-e2e
+ *   loop: a per-invocation in-memory ECDSA P-256 keypair signs the subject (ES256,
+ *   IEEE-P1363) and mints a **self-issued** leaf certificate in the profile the
+ *   protocol verifier parses, then is discarded — no CA, no network, no persisted
+ *   key. A host pins that leaf's own SPKI as the publisher root.
  *
- * The signer is injected into `publish` (see `src/publish/run.ts`) so a test can
- * drive the flow deterministically; the command wires {@link sigstoreSigner}.
+ * The signer is injected into `publish` (see `src/publish/run.ts`) so a test — and
+ * registry CI, via `--signer ephemeral` — can drive the flow deterministically.
  */
-import { createSign, generateKeyPairSync, createHash } from 'node:crypto';
-import { DSSEBundleBuilder, FulcioSigner, RekorWitness, type IdentityProvider } from '@sigstore/sign';
-import { canonicalize } from '@gridmason/protocol';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { FulcioSigner, type IdentityProvider } from '@sigstore/sign';
+import {
+  canonicalize,
+  hashBytes,
+  type MultihashString,
+  type PublisherSignature,
+  type ReleaseDoc,
+  type ReleaseHashMap,
+  type SignatureEnvelope,
+  type SignatureSubject,
+} from '@gridmason/protocol';
 import type { SigstoreInstance } from './identity.js';
-
-/** The DSSE payload media type for a Gridmason artifact submission (matches the registry). */
-export const ARTIFACT_PAYLOAD_TYPE = 'application/vnd.gridmason.artifact+json';
+import { buildKeylessLeafCertificate, derEcdsaToP1363, leafPemToDerBase64 } from './keyless-cert.js';
 
 /**
- * A DSSE-shaped signature envelope — exactly the structural shape the registry
- * Publish API requires. `payload` is base64 of the signed bytes; each entry of
- * `signatures` carries a base64 `sig` and an optional `keyid`.
+ * The release-document wire-format version and signature-envelope format version.
+ * Both are part of the canonical bytes the publisher signs / the registry
+ * reproduces, so producer and verifier must agree — the value the registry emits
+ * (registry `src/release/release-doc.ts`, `@gridmason/protocol` §4.1/§4.2).
  */
-export interface DsseEnvelope {
-  readonly payloadType: string;
-  readonly payload: string;
-  readonly signatures: readonly { readonly sig: string; readonly keyid?: string }[];
-}
+const RELEASE_DOC_FORMAT_VERSION = '1.0';
+const SIGNATURE_ENVELOPE_FORMAT_VERSION = '1.0';
+
+/**
+ * The publisher half of the protocol {@link SignatureEnvelope} — the shape the CLI
+ * uploads. It omits the registry countersignature and log-inclusion transport (the
+ * registry fills those at countersign); the registry's intake parses exactly this
+ * subset (registry `src/countersign/countersign.ts`, `parsePublisherEnvelope`).
+ */
+export type PublisherSignatureEnvelope = Pick<
+  SignatureEnvelope,
+  'formatVersion' | 'subject' | 'publisherSig'
+>;
 
 /** What the publisher commits to: the version-qualified artifact and its content-hash map. */
 export interface ArtifactSubject {
@@ -48,9 +73,9 @@ export interface ArtifactSubject {
   readonly artifact: string;
   /** `{ served path → content hash }` — the exact immutable bytes the signature covers. */
   readonly contentHashes: Readonly<Record<string, string>>;
-  /** OIDC issuer the publisher authenticated to (provenance mirrored into the payload). */
+  /** OIDC issuer the publisher authenticated to (the authorship trust anchor, mirrored + in the cert). */
   readonly issuer: string;
-  /** Identity claims the OIDC issuer asserted (provenance; the cert is the trust anchor). */
+  /** Identity claims the OIDC issuer asserted (mirrored into the envelope; the cert is the anchor). */
   readonly subjectClaims: Readonly<Record<string, string>>;
 }
 
@@ -61,67 +86,99 @@ export interface SignRequest {
   readonly token: string;
 }
 
-/** Signs an artifact subject into a DSSE envelope. Injected into `publish` for testability. */
+/** Signs an artifact subject into the publisher envelope. Injected into `publish` for testability. */
 export interface ArtifactSigner {
-  sign(request: SignRequest): Promise<DsseEnvelope>;
+  sign(request: SignRequest): Promise<PublisherSignatureEnvelope>;
 }
 
-/** The canonical bytes signed for a subject (RFC-8785 via `@gridmason/protocol`). */
-function subjectBytes(subject: ArtifactSubject): Uint8Array {
-  return canonicalize(subject);
+/** The canonical release subject `{ artifact, releaseHash }` and its signable bytes. */
+async function releaseSubject(
+  subject: ArtifactSubject,
+): Promise<{ protocolSubject: SignatureSubject; bytes: Uint8Array }> {
+  const releaseDoc: ReleaseDoc = {
+    formatVersion: RELEASE_DOC_FORMAT_VERSION,
+    artifact: subject.artifact,
+    files: subject.contentHashes as ReleaseHashMap,
+  };
+  const releaseHash: MultihashString = await hashBytes(canonicalize(releaseDoc));
+  const protocolSubject: SignatureSubject = { artifact: subject.artifact, releaseHash };
+  return { protocolSubject, bytes: canonicalize(protocolSubject) };
+}
+
+/** Assemble the publisher envelope from the signed subject and the publisher signature. */
+function buildEnvelope(
+  protocolSubject: SignatureSubject,
+  publisherSig: PublisherSignature,
+): PublisherSignatureEnvelope {
+  return {
+    formatVersion: SIGNATURE_ENVELOPE_FORMAT_VERSION,
+    subject: protocolSubject,
+    publisherSig,
+  };
+}
+
+/** The SAN rfc822 identity to bind into a self-issued leaf, if the claims carry one. */
+function identityEmail(subjectClaims: Readonly<Record<string, string>>): string | undefined {
+  return subjectClaims.email ?? subjectClaims.sub ?? undefined;
 }
 
 /**
- * The production keyless signer: a Sigstore DSSE bundle over the subject, with a
- * Fulcio short-lived cert bound to the OIDC identity and a Rekor inclusion entry.
- * The ephemeral signing key is minted in memory by {@link FulcioSigner} and never
- * persisted. Returns the bundle's DSSE envelope in the structural shape the
- * Publish API validates.
+ * The production keyless signer: a Fulcio short-lived certificate bound to the
+ * OIDC identity, plus an ECDSA signature over the canonical release subject. The
+ * ephemeral signing key is minted in memory by {@link FulcioSigner} and never
+ * persisted. Fulcio returns the cert as PEM and a DER signature; the envelope
+ * carries the leaf's DER (base64) and the signature in IEEE-P1363 form.
  */
 export function sigstoreSigner(instance: SigstoreInstance, provider: IdentityProvider): ArtifactSigner {
   return {
     async sign(request) {
-      const builder = new DSSEBundleBuilder({
-        signer: new FulcioSigner({ fulcioBaseURL: instance.fulcioURL, identityProvider: provider }),
-        witnesses: [new RekorWitness({ rekorBaseURL: instance.rekorURL })],
-      });
-      const bundle = await builder.create({ data: Buffer.from(subjectBytes(request.subject)), type: ARTIFACT_PAYLOAD_TYPE });
-      const content = bundle.content;
-      if (content?.$case !== 'dsseEnvelope') {
-        throw new Error('sigstore signer did not produce a DSSE envelope');
+      const { protocolSubject, bytes } = await releaseSubject(request.subject);
+      const signer = new FulcioSigner({ fulcioBaseURL: instance.fulcioURL, identityProvider: provider });
+      const result = await signer.sign(Buffer.from(bytes));
+      if (result.key.$case !== 'x509Certificate') {
+        throw new Error('sigstore signer did not return an X.509 certificate');
       }
-      const env = content.dsseEnvelope;
-      return {
-        payloadType: env.payloadType,
-        payload: Buffer.from(env.payload).toString('base64'),
-        signatures: env.signatures.map((s) => ({
-          sig: Buffer.from(s.sig).toString('base64'),
-          ...(s.keyid ? { keyid: s.keyid } : {}),
-        })),
+      const publisherSig: PublisherSignature = {
+        alg: 'ES256',
+        cert: leafPemToDerBase64(result.key.certificate),
+        issuer: request.subject.issuer,
+        subjectClaims: request.subject.subjectClaims,
+        sig: Buffer.from(derEcdsaToP1363(new Uint8Array(result.signature))).toString('base64'),
       };
+      return buildEnvelope(protocolSubject, publisherSig);
     },
   };
 }
 
 /**
- * An offline keyless signer for the dev/e2e loop (no Sigstore, no network): a
- * fresh in-memory ECDSA P-256 keypair signs the canonical subject (ES256,
- * IEEE-P1363), then is discarded — no certificate, no persisted key. The DSSE
- * envelope it returns is structurally what the Publish API accepts; it is not a
- * Fulcio-backed keyless credential (that is {@link sigstoreSigner}).
+ * An offline keyless signer for the dev / registry-e2e loop (no Sigstore, no
+ * network): a fresh in-memory ECDSA P-256 keypair signs the canonical subject
+ * (ES256, IEEE-P1363) and self-issues a leaf certificate in the profile the
+ * protocol verifier parses (Fulcio issuer extension = the OIDC issuer, SAN =
+ * the identity email), then is discarded — no CA, no persisted key. The envelope
+ * it returns is the same protocol shape {@link sigstoreSigner} produces; a host
+ * pins the leaf's own SPKI as the publisher root.
  */
 export function ephemeralSigner(): ArtifactSigner {
   return {
-    sign(request) {
+    async sign(request) {
       const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
-      const data = Buffer.from(subjectBytes(request.subject));
-      const sig = createSign('SHA256').update(data).sign({ key: privateKey, dsaEncoding: 'ieee-p1363' });
-      const keyid = createHash('sha256').update(publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
-      return Promise.resolve({
-        payloadType: ARTIFACT_PAYLOAD_TYPE,
-        payload: data.toString('base64'),
-        signatures: [{ sig: sig.toString('base64'), keyid }],
+      const { protocolSubject, bytes } = await releaseSubject(request.subject);
+      const sig = sign('sha256', bytes, { key: privateKey, dsaEncoding: 'ieee-p1363' });
+      const certDer = buildKeylessLeafCertificate({
+        publicKey,
+        signingKey: privateKey,
+        issuer: request.subject.issuer,
+        email: identityEmail(request.subject.subjectClaims),
       });
+      const publisherSig: PublisherSignature = {
+        alg: 'ES256',
+        cert: Buffer.from(certDer).toString('base64'),
+        issuer: request.subject.issuer,
+        subjectClaims: request.subject.subjectClaims,
+        sig: sig.toString('base64'),
+      };
+      return buildEnvelope(protocolSubject, publisherSig);
     },
   };
 }

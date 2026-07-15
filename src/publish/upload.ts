@@ -24,7 +24,7 @@
  */
 import type { Transport } from './transport.js';
 import type { ArtifactFile } from './artifact.js';
-import type { DsseEnvelope } from './signing.js';
+import type { PublisherSignatureEnvelope } from './signing.js';
 
 /** Artifact lifecycle states (registry `src/artifact/types.ts`). */
 export type ArtifactState = 'submitted' | 'reviewing' | 'approved' | 'rejected' | 'revoked' | 'killed';
@@ -76,7 +76,7 @@ export interface UploadRequest {
   readonly version: string;
   readonly files: readonly ArtifactFile[];
   readonly sourceArchive: Uint8Array;
-  readonly envelope: DsseEnvelope;
+  readonly envelope: PublisherSignatureEnvelope;
 }
 
 /** A `{ ok }` result carrying either the value or a {@link RegistryError}. */
@@ -150,7 +150,7 @@ function parseFindings(review: unknown): ReviewFinding[] {
 /**
  * Upload the content-hashed artifact to `POST /v1/artifacts`. Each file part
  * carries its exact bytes base64-encoded, tagged with its role; the source
- * archive and the DSSE envelope ride alongside. Returns the submitted/reviewed
+ * archive and the publisher signature envelope ride alongside. Returns the submitted/reviewed
  * artifact record, or the registry's stable error.
  */
 export async function uploadArtifact(deps: RegistryClientDeps, req: UploadRequest): Promise<ClientResult<ArtifactRecord>> {

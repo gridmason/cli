@@ -8,14 +8,16 @@
  * called out in the PR; the flow it drives — lint-gate, keyless sign, upload, poll,
  * findings mapping, appeal — is the real code path.
  */
+import { X509Certificate, verify } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { IO } from '../src/io.js';
 import { runInit } from '../src/init/index.js';
+import { canonicalize, hashBytes } from '@gridmason/protocol';
 import { assembleArtifact } from '../src/publish/artifact.js';
-import { ephemeralSigner, ARTIFACT_PAYLOAD_TYPE } from '../src/publish/signing.js';
+import { ephemeralSigner } from '../src/publish/signing.js';
 import { mapFindings, MANUAL_FINDING } from '../src/publish/findings.js';
 import { runPublish, type PublishDeps } from '../src/publish/run.js';
 import { runAppeal } from '../src/publish/appeal.js';
@@ -116,17 +118,51 @@ describe('assembleArtifact', () => {
 });
 
 describe('ephemeralSigner', () => {
-  it('produces a DSSE-shaped envelope over the canonical subject', async () => {
+  it('produces the publisher half of a protocol SignatureEnvelope over the canonical subject', async () => {
+    const contentHashes = { 'manifest.json': 'sha2-256:ab', 'entry.js': 'sha2-256:cd' };
     const env = await ephemeralSigner().sign({
-      subject: { artifact: 'acme-x@1.0.0', contentHashes: { 'manifest.json': 'sha2-256:ab' }, issuer: 'i', subjectClaims: {} },
+      subject: { artifact: 'acme-x@1.0.0', contentHashes, issuer: 'https://issuer.example', subjectClaims: { email: 'dev@acme.example' } },
       token: 't',
     });
-    expect(env.payloadType).toBe(ARTIFACT_PAYLOAD_TYPE);
-    expect(env.signatures.length).toBeGreaterThan(0);
-    expect(env.signatures[0]!.sig.length).toBeGreaterThan(0);
-    // The payload decodes to the canonical subject JSON.
-    const decoded = JSON.parse(Buffer.from(env.payload, 'base64').toString('utf8')) as { artifact: string };
-    expect(decoded.artifact).toBe('acme-x@1.0.0');
+
+    // The protocol publisher-envelope shape (no registrySig / logInclusion — the
+    // registry fills those at countersign).
+    expect(env.formatVersion).toBe('1.0');
+    expect(env.subject.artifact).toBe('acme-x@1.0.0');
+    expect(env.publisherSig.alg).toBe('ES256');
+    expect(env.publisherSig.issuer).toBe('https://issuer.example');
+    expect(env.publisherSig.subjectClaims).toEqual({ email: 'dev@acme.example' });
+    expect(env.publisherSig.cert.length).toBeGreaterThan(0);
+    expect(env.publisherSig.sig.length).toBeGreaterThan(0);
+
+    // The interop contract: releaseHash is the SHA-256 multihash of the canonical
+    // release document over the content-hash map — exactly what the registry
+    // countersign reproduces and binds the signature to.
+    const expected = await hashBytes(
+      canonicalize({ formatVersion: '1.0', artifact: 'acme-x@1.0.0', files: contentHashes }),
+    );
+    expect(env.subject.releaseHash).toBe(expected);
+  });
+
+  it('mints a valid keyless leaf: the signature verifies against the cert, which carries the identity', async () => {
+    const env = await ephemeralSigner().sign({
+      subject: { artifact: 'acme-x@1.0.0', contentHashes: { 'manifest.json': 'sha2-256:ab' }, issuer: 'https://issuer.example', subjectClaims: { email: 'dev@acme.example' } },
+      token: 't',
+    });
+
+    // The self-issued leaf parses as an X.509 cert and its public key verifies the
+    // IEEE-P1363 publisher signature over the canonical subject — i.e. the envelope
+    // is a real keyless signature a host can check, not just a well-shaped object.
+    const cert = new X509Certificate(Buffer.from(env.publisherSig.cert, 'base64'));
+    const verified = verify(
+      'sha256',
+      canonicalize(env.subject),
+      { key: cert.publicKey, dsaEncoding: 'ieee-p1363' },
+      Buffer.from(env.publisherSig.sig, 'base64'),
+    );
+    expect(verified).toBe(true);
+    // The identity is bound into the cert SAN (the authorship anchor a host reads).
+    expect(cert.subjectAltName ?? '').toContain('dev@acme.example');
   });
 });
 
@@ -181,7 +217,7 @@ describe('runPublish', () => {
     const report = JSON.parse(cap.out()) as { status: string; state: string; id: string };
     expect(report.status).toBe('published');
     expect(report.state).toBe('approved');
-    // Exactly one artifact was uploaded, with a DSSE envelope the registry accepted.
+    // Exactly one artifact was uploaded, with a protocol signature envelope the registry accepted.
     expect(registry.uploadAttempts).toBe(1);
     expect(registry.uploadedEnvelopes).toHaveLength(1);
   });

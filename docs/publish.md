@@ -9,7 +9,7 @@ target registry's Publish API, and polls the review outcome. `appeal` routes a
 rejected submission to a second reviewer.
 
 ```bash
-gridmason publish [path] --registry <url> [--token <jwt>] [--ambient] [--sigstore <instance>] [--json]
+gridmason publish [path] --registry <url> [--token <jwt>] [--ambient] [--sigstore <instance>] [--signer <kind>] [--json]
 gridmason appeal  <artifact-id> --registry <url> [--token <jwt>] [--ambient] [--json]
 ```
 
@@ -32,7 +32,10 @@ gridmason appeal  <artifact-id> --registry <url> [--token <jwt>] [--ambient] [--
    "passes review" because it is the same code.
 3. **Sign keyless.** A short-lived signature is bound to the OIDC identity
    `login` established; no long-lived key is written (SPEC §1, §8). The result is
-   a DSSE-shaped signature envelope over the artifact subject.
+   the **publisher half of the `@gridmason/protocol` `SignatureEnvelope`** —
+   `{ formatVersion, subject{ artifact, releaseHash }, publisherSig{ alg, cert,
+   issuer, subjectClaims, sig } }` — over the canonical release subject (below).
+   The registry applies the countersignature half and a host verifies both.
 4. **Upload** to `POST /v1/artifacts` with your OIDC token as the bearer. The
    registry content-addresses the parts, structurally validates the envelope,
    enforces `(tag, version)` immutability, and runs its automated review.
@@ -78,12 +81,39 @@ authorization code with PKCE over a loopback redirect). That token is both the
 upload bearer and the identity the keyless signature is bound to.
 
 The default signer is the **Sigstore public-good** instance (`--sigstore staging`
-selects the staging CA): `@sigstore/sign` mints an ephemeral keypair in memory,
-obtains a Fulcio short-lived certificate bound to your OIDC identity, and logs to
-Rekor — nothing touches disk. This path needs network and an allowlisted-issuer
-token, so it is exercised opt-in against a live instance (as `login`'s
-live-staging leg is). The offline dev/e2e loop uses an ephemeral keyless signer
-that produces the same DSSE shape without reaching Sigstore.
+selects the staging CA): `@sigstore/sign` mints an ephemeral keypair in memory and
+obtains a Fulcio short-lived certificate bound to your OIDC identity — nothing
+touches disk. `publish` carries that leaf certificate and the signature over the
+canonical subject in `publisherSig`; transparency-log anchoring is the registry's
+job at countersign, not the publisher's. This path needs network and an
+allowlisted-issuer token, so it is exercised opt-in against a live instance (as
+`login`'s live-staging leg is).
+
+### `--signer ephemeral` (offline dev / e2e)
+
+`--signer ephemeral` selects an **offline** keyless signer that reaches no
+network: it mints a per-invocation in-memory ECDSA P-256 keypair, signs the
+subject, and **self-issues** a leaf certificate in the same profile
+`@gridmason/protocol` verifies (the OIDC issuer in the Fulcio issuer extension, the
+identity email in the SAN), then discards the key. A host pins that leaf's own
+public key as the publisher root. It still needs an identity (`--token` /
+`--ambient`) for the issuer + subject claims it mirrors into the envelope, but no
+Sigstore.
+
+It is a **dev / e2e affordance, not a Fulcio identity** — its cert chains to
+nothing a production host pins, so a conforming host that pins real Fulcio roots
+refuses it. Its purpose is to let a registry (or a local instance) drive the real
+`gridmason publish` binary deterministically without Sigstore network — e.g.
+`gridmason publish --registry <url> --token <jwt> --signer ephemeral`.
+
+### The canonical release subject
+
+`releaseHash` is the SHA-256 multihash (`sha2-256:<hex>`) of the canonical
+(RFC-8785 / JCS) **release document** `{ formatVersion: "1.0", artifact, files }`,
+where `files` is the `{ served path → content hash }` map of everything uploaded.
+The registry countersign reproduces this document byte-for-byte and refuses to
+countersign a signature whose `releaseHash` does not bind the uploaded content, so
+the signature commits to the exact served bytes.
 
 ## `appeal`
 
