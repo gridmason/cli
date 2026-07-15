@@ -7,7 +7,7 @@
  * - `POST /v1/artifacts` verifies a bearer token is present, checks the tag is
  *   under the publisher prefix, content-addresses every part with the **same
  *   `@gridmason/protocol` hashing** the real registry uses, structurally validates
- *   the DSSE envelope, enforces `(tag, version)` immutability, and runs the
+ *   the protocol signature envelope, enforces `(tag, version)` immutability, and runs the
  *   **shared `src/checks` module** as its automated review — the very code
  *   `gridmason lint` runs — so a clean artifact advances to `reviewing` and a
  *   failing one to `rejected`, exactly as the real automated stage does.
@@ -22,7 +22,7 @@
  */
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { hashBytes } from '@gridmason/protocol';
+import { canonicalize, hashBytes } from '@gridmason/protocol';
 import { runChecks, hasFailure, type CheckContext, type SourceFile } from '../../src/checks/index.js';
 import type { Transport, HttpResponse } from '../../src/publish/transport.js';
 import type { ReviewFinding } from '../../src/publish/upload.js';
@@ -61,14 +61,32 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Structural DSSE check — payloadType + payload + non-empty signatures[] (registry publish.md). */
-function isDsseShaped(env: unknown): boolean {
+/**
+ * Structural check of the protocol `SignatureEnvelope` publisher half the CLI now
+ * uploads — `{ formatVersion, subject{ artifact, releaseHash }, publisherSig{ alg,
+ * cert, issuer, subjectClaims, sig } }` — mirroring the registry's countersign
+ * `parsePublisherEnvelope` (registry `src/countersign/countersign.ts`).
+ */
+function isProtocolEnvelopeShaped(env: unknown): env is {
+  subject: { artifact: string; releaseHash: string };
+  publisherSig: { cert: string; sig: string };
+} {
+  if (!isObject(env)) return false;
+  if (typeof env.formatVersion !== 'string') return false;
+  const subject = env.subject;
+  if (!isObject(subject) || typeof subject.artifact !== 'string' || typeof subject.releaseHash !== 'string') {
+    return false;
+  }
+  const sig = env.publisherSig;
   return (
-    isObject(env) &&
-    typeof env.payloadType === 'string' &&
-    typeof env.payload === 'string' &&
-    Array.isArray(env.signatures) &&
-    env.signatures.length > 0
+    isObject(sig) &&
+    sig.alg === 'ES256' &&
+    typeof sig.cert === 'string' &&
+    sig.cert !== '' &&
+    typeof sig.issuer === 'string' &&
+    isObject(sig.subjectClaims) &&
+    typeof sig.sig === 'string' &&
+    sig.sig !== ''
   );
 }
 
@@ -78,7 +96,7 @@ export class FakeRegistry {
   private readonly approveAfterPolls: number;
   private readonly rejectTags: Readonly<Record<string, readonly ReviewFinding[]>>;
   private readonly store = new Map<string, StoredArtifact>();
-  /** Every accepted upload's DSSE envelope, so a test can assert what was signed. */
+  /** Every accepted upload's publisher signature envelope, so a test can assert what was signed. */
   readonly uploadedEnvelopes: unknown[] = [];
   /** Count of upload attempts that reached `POST /v1/artifacts` (asserts "never upload known-bad"). */
   uploadAttempts = 0;
@@ -119,9 +137,10 @@ export class FakeRegistry {
     if (!tag.startsWith(`${this.prefix}-`)) {
       return error(403, 'tag_not_in_prefix', `tag "${tag}" is not under this publisher's prefix "${this.prefix}"`);
     }
-    if (!isDsseShaped(body.envelope)) {
-      return error(400, 'invalid_envelope', 'the publisher signature envelope is missing or not DSSE-shaped');
+    if (!isProtocolEnvelopeShaped(body.envelope)) {
+      return error(400, 'invalid_envelope', 'the publisher signature envelope is missing or not a protocol SignatureEnvelope');
     }
+    const envelope = body.envelope;
     const key = `${tag}@${version}`;
     if ([...this.store.values()].some((a) => `${a.tag}@${a.version}` === key)) {
       return error(409, 'version_exists', `version "${version}" of "${tag}" is already published and is immutable`);
@@ -142,6 +161,18 @@ export class FakeRegistry {
     }
     const contentHashes: Record<string, string> = {};
     for (const p of parsed) contentHashes[p.path] = await hashBytes(p.bytes);
+
+    // The interop binding the real countersign enforces: the signed
+    // `subject.releaseHash` must be the hash of the canonical release document over
+    // the content-addressed parts. A signer that computed it differently would be
+    // countersigned into an unverifiable release, so reject it here (registry
+    // `src/countersign/stage.ts`, `release-hash-mismatch`).
+    const releaseHash = await hashBytes(
+      canonicalize({ formatVersion: '1.0', artifact: key, files: contentHashes }),
+    );
+    if (envelope.subject.releaseHash !== releaseHash) {
+      return error(400, 'invalid_envelope', 'the signed release hash does not bind the uploaded content');
+    }
 
     // Automated review with the shared checks — the identical code `gridmason lint` runs.
     let manifest: unknown;

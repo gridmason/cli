@@ -9,7 +9,7 @@
  *    `requires`, or an undeclared capability reach): never upload known-bad
  *    (SPEC §8).
  * 3. **Acquire** the OIDC identity (`login`'s token) and **sign keylessly** into a
- *    DSSE envelope (`signing.ts`).
+ *    protocol `SignatureEnvelope` publisher half (`signing.ts`).
  * 4. **Upload** to the target registry's Publish API and **poll** review status.
  *    On approval the registry countersigns + logs + CDN-publishes; on rejection
  *    the findings are printed **mapped to the shared lint check ids**

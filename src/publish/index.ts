@@ -51,8 +51,8 @@ export type { WhoamiOptions } from './whoami.js';
 // the registry Publish API client, and the publish/appeal orchestration.
 export { assembleArtifact } from './artifact.js';
 export type { Artifact, ArtifactFile, AssembleErrorCode, AssembleResult, FileRole } from './artifact.js';
-export { ARTIFACT_PAYLOAD_TYPE, ephemeralSigner, sigstoreSigner } from './signing.js';
-export type { ArtifactSigner, ArtifactSubject, DsseEnvelope, SignRequest } from './signing.js';
+export { ephemeralSigner, sigstoreSigner } from './signing.js';
+export type { ArtifactSigner, ArtifactSubject, PublisherSignatureEnvelope, SignRequest } from './signing.js';
 export { fetchTransport, MAX_RESPONSE_BYTES } from './transport.js';
 export type { HttpResponse, RequestOptions, Transport } from './transport.js';
 export { appealArtifact, getReviewStatus, uploadArtifact } from './upload.js';
