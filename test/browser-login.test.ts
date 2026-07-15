@@ -44,7 +44,7 @@ interface FakeIssuer {
  * verifier and mints an id_token. `overrideNonce` lets a test force a mismatched
  * nonce; `subjectClaims` shapes the minted identity.
  */
-async function startFakeIssuer(opts: { overrideNonce?: string } = {}): Promise<FakeIssuer> {
+async function startFakeIssuer(opts: { overrideNonce?: string; advertiseIssuer?: string } = {}): Promise<FakeIssuer> {
   const codes = new Map<string, { challenge: string; nonce: string }>();
   let base = '';
   const server: Server = createServer((req, res) => {
@@ -52,7 +52,7 @@ async function startFakeIssuer(opts: { overrideNonce?: string } = {}): Promise<F
     if (url.pathname === '/.well-known/openid-configuration') {
       res.writeHead(200, { 'content-type': 'application/json' }).end(
         JSON.stringify({
-          issuer: base,
+          issuer: opts.advertiseIssuer ?? base,
           authorization_endpoint: `${base}/authorize`,
           token_endpoint: `${base}/token`,
         }),
@@ -187,6 +187,18 @@ describe('runBrowserAuthFlow (authorization code + PKCE, loopback redirect)', ()
     await expect(
       runBrowserAuthFlow({ issuer: issuer.url, openBrowser: neverOpens, timeoutMs: 50 }),
     ).rejects.toMatchObject({ code: 'no-token', message: expect.stringContaining('timed out') });
+  });
+
+  it('rejects when discovery advertises a different issuer than requested', async () => {
+    const spoofed = await startFakeIssuer({ advertiseIssuer: 'https://evil.example' });
+    try {
+      await expect(runBrowserAuthFlow({ issuer: spoofed.url, openBrowser: followFlow })).rejects.toMatchObject({
+        code: 'no-token',
+        message: expect.stringContaining('different issuer'),
+      });
+    } finally {
+      await spoofed.close();
+    }
   });
 
   it('fails with an actionable message when discovery is unreachable', async () => {

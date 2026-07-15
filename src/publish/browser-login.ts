@@ -113,8 +113,15 @@ async function discover(issuer: string): Promise<OidcMetadata> {
   if (!meta.authorization_endpoint || !meta.token_endpoint) {
     throw new IdentityError('no-token', `OIDC discovery for ${issuer} is missing an authorization or token endpoint`);
   }
+  // OIDC Discovery §4.3: the advertised `issuer` MUST equal the URL discovery ran
+  // against. Enforcing it keeps a misbehaving discovery endpoint from silently
+  // swapping the trust anchor out from under the issuer the user chose.
+  const advertised = meta.issuer ?? issuer;
+  if (advertised.replace(/\/+$/, '') !== issuer.replace(/\/+$/, '')) {
+    throw new IdentityError('no-token', `OIDC discovery for ${issuer} advertised a different issuer (${advertised})`);
+  }
   return {
-    issuer: meta.issuer ?? issuer,
+    issuer: advertised,
     authorization_endpoint: meta.authorization_endpoint,
     token_endpoint: meta.token_endpoint,
   };
