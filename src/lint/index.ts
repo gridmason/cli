@@ -16,7 +16,16 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { IO } from '../io.js';
-import { hasFailure, runChecks, type CheckContext, type CheckResult, type SourceFile } from '../checks/index.js';
+import {
+  HttpRegistryClient,
+  hasFailure,
+  runChecks,
+  runRegistryChecks,
+  type CheckContext,
+  type CheckResult,
+  type RegistryClient,
+  type SourceFile,
+} from '../checks/index.js';
 import { buildLintErrorReport, buildLintReport } from './report.js';
 
 /** The manifest file a widget project is anchored on (matches `dev`). */
@@ -102,6 +111,8 @@ export interface LintOptions {
   json?: boolean | undefined;
   /** Base directory the `[path]` is resolved against; defaults to the process cwd. (test seam) */
   cwd?: string | undefined;
+  /** The registry client the registry-aware checks read through; defaults to an {@link HttpRegistryClient} built from `registry`. (test seam) */
+  registryClient?: RegistryClient | undefined;
 }
 
 /** Why `manifest.json` could not be read — machine consumers switch on the code. */
@@ -124,8 +135,10 @@ function reportLoadError(code: LoadErrorCode, message: string, io: IO, json: boo
 
 /**
  * Run `gridmason lint`. Reads `<path>/manifest.json`, runs every registered check
- * against it, reports the findings, and returns a process exit code: `0` when no
- * check failed, `1` when a check failed or the manifest could not be read.
+ * against it — plus, when `--registry` is given, the registry-aware checks
+ * (capability diff + server-validated DAG, SPEC §5 checks 3–4) — reports the
+ * findings, and returns a process exit code: `0` when no check failed, `1` when a
+ * check failed or the manifest could not be read.
  */
 export async function runLint(opts: LintOptions, io: IO): Promise<number> {
   const root = path.resolve(opts.cwd ?? process.cwd(), opts.path ?? '.');
@@ -155,6 +168,13 @@ export async function runLint(opts: LintOptions, io: IO): Promise<number> {
     ...(opts.registry !== undefined ? { registry: opts.registry } : {}),
   };
   const results = runChecks(ctx);
+  // `--registry`: layer the registry-aware checks (capability diff + server DAG,
+  // SPEC §5 checks 3–4) on top of the offline run, in report order after them.
+  if (opts.registry !== undefined) {
+    const client = opts.registryClient ?? new HttpRegistryClient(opts.registry);
+    const registryResults = await runRegistryChecks({ manifest, registry: opts.registry, client });
+    results.push(...registryResults);
+  }
   const failed = hasFailure(results);
 
   if (opts.json) {

@@ -11,9 +11,33 @@
  * `docs/checks.md`; the L-E2 epic (#11–#14) fills in the manifest lint (here),
  * the SDK-adherence static analysis (#12), and the dependency-DAG check + the
  * `--json` report / tier mapping (#13).
+ *
+ * The **registry-aware** checks (`capability.diff`, `deps.server-acyclic`; #19)
+ * are exported alongside but are a separate, *asynchronous* surface: they call the
+ * target registry, so they run only under `gridmason lint --registry` and are not
+ * part of the offline {@link checks} array the registry service imports verbatim.
+ * They share the {@link CheckResult} shape, the check-id scheme, and the tier
+ * mapping, so their findings land in the same `--json` report.
  */
-export type { Check, CheckContext, CheckResult, CheckStatus, SourceFile } from './types.js';
+export type { Check, CheckContext, CheckResult, CheckStatus, RawCapability, SourceFile } from './types.js';
 export { checks, runChecks, hasFailure } from './run.js';
+export {
+  registryChecks,
+  runRegistryChecks,
+  capabilityDiffCheck,
+  serverDagCheck,
+  type RegistryCheck,
+  type RegistryCheckContext,
+} from './registry.js';
+export {
+  HttpRegistryClient,
+  MAX_REGISTRY_RESPONSE_BYTES,
+  type RegistryClient,
+  type PublishedCapabilities,
+  type DagValidationRequest,
+  type DagValidationResult,
+  type RequiresEdge,
+} from './registry-client.js';
 export {
   manifestChecks,
   manifestSchemaCheck,
