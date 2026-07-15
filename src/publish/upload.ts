@@ -10,7 +10,7 @@
  * - `POST /v1/artifacts` — upload. Body `{ tag, version, files[], sourceArchive,
  *   envelope }` with a bearer OIDC token; `201` returns the artifact record
  *   (`{ id, state, contentHashes, … }`); errors carry `{ error: { code, message } }`.
- * - `GET /v1/artifacts/:id` — poll the artifact's state and, on a terminal review
+ * - `GET /v1/artifacts/:id/status` — poll the artifact's state and, on a terminal review
  *   decision, its findings. **Forward contract:** M-B1 advances state
  *   synchronously in the upload response and exposes review findings only on the
  *   reviewer-only lane; this publisher-facing status+findings surface is what the
@@ -172,12 +172,12 @@ export async function uploadArtifact(deps: RegistryClientDeps, req: UploadReques
   return { ok: true, value: record };
 }
 
-/** Poll one artifact's review status via `GET /v1/artifacts/:id`. */
+/** Poll one artifact's review status via `GET /v1/artifacts/:id/status`. */
 export async function getReviewStatus(
   deps: RegistryClientDeps,
   args: { registry: string; token: string; id: string },
 ): Promise<ClientResult<ReviewStatus>> {
-  const res = await deps.transport.request('GET', apiUrl(args.registry, `v1/artifacts/${encodeURIComponent(args.id)}`), { token: args.token });
+  const res = await deps.transport.request('GET', apiUrl(args.registry, `v1/artifacts/${encodeURIComponent(args.id)}/status`), { token: args.token });
   if (res.status !== 200) {
     return { ok: false, error: toRegistryError(res.status, res.body) };
   }

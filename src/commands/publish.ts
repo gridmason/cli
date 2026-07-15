@@ -23,8 +23,8 @@ interface PublishOptions extends GlobalOptions {
  * findings in the same check-id vocabulary as `gridmason lint`.
  *
  * Identity is acquired exactly as `login` acquires it (`--token` / env / ambient
- * CI); the interactive browser leg is still unwired (#49). The keyless signer is
- * the Sigstore public-good instance by default (`--sigstore staging` for the
+ * CI, or the interactive browser sign-in flow in a terminal). The keyless signer
+ * is the Sigstore public-good instance by default (`--sigstore staging` for the
  * staging CA).
  */
 export function buildPublish(io: IO): Command {
