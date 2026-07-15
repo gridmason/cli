@@ -9,11 +9,13 @@ automated checks a registry review runs, locally, so "green locally" predicts
 Engineering spec: [`docs/SPEC.md`](docs/SPEC.md) · Build plan:
 [`docs/specs/cli-v0/spec.md`](docs/specs/cli-v0/spec.md).
 
-> **Status: early.** The command surface below is wired and documented.
-> `gridmason widget init` scaffolds a project (see
-> [`docs/widget-init.md`](docs/widget-init.md)); the remaining commands are stubs
-> that print a "not yet implemented" notice — behavior lands across the cli-v0
-> milestones (SPEC §10). Track progress in the repo's issues.
+> **Status: 0.x.** The full author loop is implemented and documented —
+> `widget init`, `dev`, `lint`, `verify`, `publish`, `appeal`, `bundle`, `login`,
+> and `whoami` all do real work (see [`docs/`](docs/README.md) and each command's
+> `--help`). Being pre-1.0, the surface may still change across the cli-v0
+> milestones (SPEC §10); track what is landing in the repo's issues. Publishing to
+> a live registry additionally depends on a running Gridmason Registry (see
+> [Getting started](#getting-started-your-first-widget)).
 
 ## Install
 
@@ -44,6 +46,55 @@ name: `--registry <url>` (defaults to config, then the flagship registry),
 `--json` (machine output for CI), `--offline` (verify/bundle without network).
 
 Run `gridmason <command> --help` for the details of any command.
+
+## Getting started: your first widget
+
+The author loop is **scaffold → develop → lint → publish**. Each step below has a
+fuller guide under [`docs/`](docs/README.md).
+
+1. **Scaffold a project.** Pick a human name and your publisher prefix (the tag
+   becomes `<publisher>-<slug>`); `--kind` and `--framework` default to `widget`
+   and `vanilla`.
+
+   ```bash
+   gridmason widget init "Sales Chart" --publisher acme
+   cd sales-chart
+   ```
+
+   The scaffold is lint-clean out of the box. See
+   [`docs/widget-init.md`](docs/widget-init.md).
+
+2. **Develop against the local harness.** Serve the widget for the dashboard
+   `dev` sideload and iterate:
+
+   ```bash
+   gridmason dev            # harness at http://127.0.0.1:3000
+   ```
+
+   See [`docs/dev-server.md`](docs/dev-server.md).
+
+3. **Lint** — run the *exact* automated checks a registry review runs, so "green
+   locally" predicts "passes review":
+
+   ```bash
+   gridmason lint           # add --json for CI, --registry <url> for the two networked checks
+   ```
+
+   Every check id is documented in [`docs/checks.md`](docs/checks.md).
+
+4. **Establish an identity, then publish.** `publish` signs keyless against the
+   identity `login` establishes, then uploads and polls the review outcome:
+
+   ```bash
+   gridmason login                          # interactive browser sign-in (or --token / --ambient in CI)
+   gridmason publish --registry <url>       # e.g. https://registry.example.com
+   ```
+
+   `--registry <url>` is **required** — there is no baked-in default registry yet,
+   so point it at a running Gridmason Registry. You can self-host one from
+   [github.com/gridmason/registry](https://github.com/gridmason/registry). If a
+   submission is rejected, `gridmason appeal <artifact-id> --registry <url>`
+   routes it to a second reviewer. See [`docs/publish.md`](docs/publish.md).
 
 ## Documentation
 

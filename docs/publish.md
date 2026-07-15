@@ -72,9 +72,10 @@ the `manual` sentinel and is shown as a manual-review finding.
 ## Identity and keyless signing
 
 `publish` acquires an OIDC token exactly as [`login`](login-whoami.md) does — an
-explicit `--token`, `GRIDMASON_OIDC_TOKEN`, or the ambient CI OIDC context
-(`--ambient`); the interactive browser leg is not wired yet (#49). That token is
-both the upload bearer and the identity the keyless signature is bound to.
+explicit `--token`, `GRIDMASON_OIDC_TOKEN`, the ambient CI OIDC context
+(`--ambient`), or, in an interactive terminal, the browser sign-in flow (an
+authorization code with PKCE over a loopback redirect). That token is both the
+upload bearer and the identity the keyless signature is bound to.
 
 The default signer is the **Sigstore public-good** instance (`--sigstore staging`
 selects the staging CA): `@sigstore/sign` mints an ephemeral keypair in memory,

@@ -12,8 +12,8 @@ import { buildWidget } from './widget.js';
 
 /**
  * Register the full SPEC §2 command surface onto the root program, in spec
- * order. Commands are stubs in this scaffold (each prints a not-implemented
- * notice); the surface is complete so `--help` documents the real tool.
+ * order. Every command is implemented and does real work; the surface is
+ * complete so `--help` documents the whole tool.
  */
 export function registerCommands(program: Command, io: IO): void {
   program.addCommand(buildWidget(io));
